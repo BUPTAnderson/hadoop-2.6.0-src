@@ -169,16 +169,17 @@ public class NameNodeProxies {
   public static <T> ProxyAndInfo<T> createProxy(Configuration conf,
       URI nameNodeUri, Class<T> xface, AtomicBoolean fallbackToSimpleAuth)
       throws IOException {
+    // failoverProxyProvider可以在HA发生的情况下切换到active namenode
     AbstractNNFailoverProxyProvider<T> failoverProxyProvider =
         createFailoverProxyProvider(conf, nameNodeUri, xface, true,
           fallbackToSimpleAuth);
   
     if (failoverProxyProvider == null) {
-      // Non-HA case
+      // Non-HA case， 非HA情况下获取代理对象及ProxyAndInfo对象
       return createNonHAProxy(conf, NameNode.getAddress(nameNodeUri), xface,
           UserGroupInformation.getCurrentUser(), true, fallbackToSimpleAuth);
     } else {
-      // HA case
+      // HA case， hA情况下构造Proxy对象，直接通过动态代理构造， 实际最终的调用是通过failoverProxyProvider
       Conf config = new Conf(conf);
       T proxy = (T) RetryProxy.create(xface, failoverProxyProvider,
           RetryPolicies.failoverOnNetworkException(
@@ -312,6 +313,7 @@ public class NameNodeProxies {
     Text dtService = SecurityUtil.buildTokenService(nnAddr);
   
     T proxy;
+    // 根据请求的接口获取不同的代理对象
     if (xface == ClientProtocol.class) {
       proxy = (T) createNNProxyWithClientProtocol(nnAddr, conf, ugi,
           withRetries, fallbackToSimpleAuth);
@@ -405,6 +407,7 @@ public class NameNodeProxies {
       InetSocketAddress address, Configuration conf, UserGroupInformation ugi,
       boolean withRetries, AtomicBoolean fallbackToSimpleAuth)
       throws IOException {
+    // 设置protocolEngine， 设为ProtobufRpcEngine.class
     RPC.setProtocolEngine(conf, ClientNamenodeProtocolPB.class, ProtobufRpcEngine.class);
 
     final RetryPolicy defaultPolicy = 
@@ -417,6 +420,7 @@ public class NameNodeProxies {
             SafeModeException.class);
     
     final long version = RPC.getProtocolVersion(ClientNamenodeProtocolPB.class);
+    // 非常重要的逻辑：创建一个ClientNamenodeProtocolPB对象，该对象会被封装到ClientNamenodeProtocolTranslatorPB对象里面作为rpcProxy的值。 这里还要注意的是ClientNamenodeProtocolPB对象是通过动态代理获取的
     ClientNamenodeProtocolPB proxy = RPC.getProtocolProxy(
         ClientNamenodeProtocolPB.class, version, address, ugi, conf,
         NetUtils.getDefaultSocketFactory(conf),
@@ -443,6 +447,7 @@ public class NameNodeProxies {
 
       ClientProtocol translatorProxy =
         new ClientNamenodeProtocolTranslatorPB(proxy);
+      // 如果允许重试， 这里会把ClientNamenodeProtocolTranslatorPB对象translatorProxy再封装一下
       return (ClientProtocol) RetryProxy.create(
           ClientProtocol.class,
           new DefaultFailoverProxyProvider<ClientProtocol>(
@@ -450,6 +455,7 @@ public class NameNodeProxies {
           methodNameToPolicyMap,
           defaultPolicy);
     } else {
+      // 如果不允许重试，构造ClientNamenodeProtocolTranslatorPB对象并返回，ClientNamenodeProtocolTranslatorPB对象会持有一个ClientNamenodeProtocolPB对象
       return new ClientNamenodeProtocolTranslatorPB(proxy);
     }
   }
@@ -501,7 +507,7 @@ public class NameNodeProxies {
         xface.isAssignableFrom(NamenodeProtocols.class),
         "Interface %s is not a NameNode protocol", xface);
     try {
-      // Obtain the class of the proxy provider
+      // Obtain the class of the proxy provider, 这里比如配置为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
       failoverProxyProviderClass = getFailoverProxyProviderClass(conf,
           nameNodeUri);
       if (failoverProxyProviderClass == null) {

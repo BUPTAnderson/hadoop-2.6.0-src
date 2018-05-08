@@ -725,9 +725,11 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
   static FSNamesystem loadFromDisk(Configuration conf) throws IOException {
 
     checkConfiguration(conf);
+    // 构造FSImage对象，getNamespaceDirs方法获取fsimages配置的目录，可配置多个目录，逗号分割即可； getNamespaceEditsDirs获取editlog配置的目录
     FSImage fsImage = new FSImage(conf,
         FSNamesystem.getNamespaceDirs(conf),
         FSNamesystem.getNamespaceEditsDirs(conf));
+    // 创建FSNamesystem对象，该类的构造方法中执行的主要逻辑是从配置文件中获取参数，然后构造FSDirectory, BlockManager, SnapshotManager, CacheManager, SafeModeInfo等对象， 注意该构造方法中并不会从磁盘上加载fsimage及editlog文件
     FSNamesystem namesystem = new FSNamesystem(conf, fsImage, false);
     StartupOption startOpt = NameNode.getStartupOption(conf);
     if (startOpt == StartupOption.RECOVER) {
@@ -736,6 +738,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
 
     long loadStart = now();
     try {
+      // 加载fsimage以及editlog文件
       namesystem.loadFSImage(startOpt);
     } catch (IOException ioe) {
       LOG.warn("Encountered exception loading fsimage", ioe);
@@ -792,6 +795,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
           DFS_NAMENODE_RESOURCE_CHECK_INTERVAL_KEY,
           DFS_NAMENODE_RESOURCE_CHECK_INTERVAL_DEFAULT);
 
+      // 初始化blockManager， 这里FSNamesystem实现了接口Namesystem, FSClusterState所以前两个参数传的都是this
       this.blockManager = new BlockManager(this, this, conf);
       this.datanodeStatistics = blockManager.getDatanodeManager().getDatanodeStatistics();
       this.blockIdGenerator = new SequentialBlockIdGenerator(this.blockManager);
@@ -1100,14 +1104,19 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
     writeLock();
     this.haContext = haContext;
     try {
+      // 创建NameNodeResourceChecker对象，该对象会检查edits dirs以及配置项dfs.namenode.resource.checked.volumes配置的目录的磁盘空间
       nnResourceChecker = new NameNodeResourceChecker(conf);
+      // 调用nnResourceChecker做一次磁盘检查， 之后的逻辑中会调用startActiveServices方法，该方法中会启动NameNodeResourceMonitor监控线程，定期执行checkAvailableResources()方法
       checkAvailableResources();
       assert safeMode != null && !isPopulatingReplQueues();
+      //　启动进度对象
       StartupProgress prog = NameNode.getStartupProgress();
       prog.beginPhase(Phase.SAFEMODE);
       prog.setTotal(Phase.SAFEMODE, STEP_AWAITING_REPORTED_BLOCKS,
         getCompleteBlocksTotal());
+      // 设置系统中COMPLETE blocks(已完成的数据块)总量
       setBlockTotal();
+      // 激活BlockManager, 主要是完成一些工作线程的启动
       blockManager.activate(conf);
     } finally {
       writeUnlock();
@@ -1177,7 +1186,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
         getFSImage().editLog.openForWrite();
       }
 
-      // Enable quota checks.
+      // Enable quota checks. 打开FsDirectory的quota检查
       dir.enableQuotaChecks();
       if (haEnabled) {
         // Renew all of the leases before becoming active.
@@ -1186,13 +1195,15 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
         // Give them all a fresh start here.
         leaseManager.renewAllLeases();
       }
+      // 打开leaseManager的Monitor
       leaseManager.startMonitor();
       startSecretManagerIfNecessary();
 
-      //ResourceMonitor required only at ActiveNN. See HDFS-2914
+      //ResourceMonitor required only at ActiveNN. See HDFS-2914 启动NameNodeResourceMonitor 监控线程，该线程或定期执行NameNodeResourceChecker的hasAvailableDiskSpace()方法检查可用的磁盘资源。
       this.nnrmthread = new Daemon(new NameNodeResourceMonitor());
       nnrmthread.start();
 
+      // 启动NameNodeEditLogRoller
       nnEditLogRoller = new Daemon(new NameNodeEditLogRoller(
           editLogRollerThreshold, editLogRollerInterval));
       nnEditLogRoller.start();
@@ -1203,6 +1214,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
         lazyPersistFileScrubber.start();
       }
 
+      // 在CacheManager创建CacheReplicationMonitor并启动
       cacheManager.startMonitorThread();
       blockManager.getDatanodeManager().setShouldSendCachingCommands(true);
     } finally {
@@ -1385,6 +1397,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
   }
   
   public static Collection<URI> getNamespaceDirs(Configuration conf) {
+    // 获取fsimages配置的目录并将每个目录转换成URI
     return getStorageDirs(conf, DFS_NAMENODE_NAME_DIR_KEY);
   }
 
@@ -1455,6 +1468,8 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
     LinkedHashSet<URI> editsDirs = new LinkedHashSet<URI>();
     
     if (includeShared) {
+      // 如果没有配置 "dfs.namenode.shared.edits.dir"， 返回的是空集合， 从下面的判断可以看出， 该配置参数只能配置一个。dfs.namenode.shared.edits.dir   这是NameNode读写JNs组的uri。通过这个uri，NameNodes可以读写edit log内容。
+      // URI的格式"qjournal://host1:port1;host2:port2;host3:port3/journalId"。这里的host1、host2、host3指的是Journal Node的地址，这里必须是奇数个，至少3个；其中journalId是集群的唯一标识符，对于多个联邦命名空间，也使用同一个journalId。 示例：qjournal://node1.example.com:8485;node2.example.com:8485;node3.example.com:8485/mycluster
       List<URI> sharedDirs = getSharedEditsDirs(conf);
   
       // Fail until multiple shared edits directories are supported (HDFS-2782)
@@ -1475,6 +1490,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
       }
     }    
     // Now add the non-shared dirs.
+    // 获取"dfs.namenode.edits.dir"配置项的值
     for (URI dir : getStorageDirs(conf, DFS_NAMENODE_EDITS_DIR_KEY)) {
       if (!editsDirs.add(dir)) {
         LOG.warn("Edits URI " + dir + " listed multiple times in " + 
@@ -1500,6 +1516,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
   public static List<URI> getSharedEditsDirs(Configuration conf) {
     // don't use getStorageDirs here, because we want an empty default
     // rather than the dir in /tmp
+    // 如果没有配置 "dfs.namenode.shared.edits.dir"， 返回的是空集合
     Collection<String> dirNames = conf.getTrimmedStringCollection(
         DFS_NAMENODE_SHARED_EDITS_DIR_KEY);
     return Util.stringCollectionAsURIs(dirNames);
@@ -6220,6 +6237,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
   @Override // FSNamesystemMBean
   @Metric
   public long getBlocksTotal() {
+    // 从blockManager中获取总的block数量
     return blockManager.getTotalBlocks();
   }
 
@@ -6232,6 +6250,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
     long numUCBlocks = 0;
     readLock();
     try {
+      // 从leaseManager中获取正在被操作的文件信息
       for (Lease lease : leaseManager.getSortedLeases()) {
         for (String path : lease.getPaths()) {
           final INodeFile cons;
@@ -6251,6 +6270,7 @@ public class FSNamesystem implements Namesystem, FSClusterStats,
         }
       }
       LOG.info("Number of blocks under construction: " + numUCBlocks);
+      // 总的blocks数量减去未完成的block数量就是COMPLETE blocks数量
       return getBlocksTotal() - numUCBlocks;
     } finally {
       readUnlock();

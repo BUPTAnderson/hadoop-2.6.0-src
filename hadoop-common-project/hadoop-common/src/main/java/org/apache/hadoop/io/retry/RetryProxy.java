@@ -55,6 +55,7 @@ public class RetryProxy {
    */
   public static <T> Object create(Class<T> iface,
       FailoverProxyProvider<T> proxyProvider, RetryPolicy retryPolicy) {
+    // 直接通过动态代理构造一个Proxy对象， 所有请求都会由RetryInvocationHandler的invoke方法处理
     return Proxy.newProxyInstance(
         proxyProvider.getInterface().getClassLoader(),
         new Class<?>[] { iface },

@@ -302,13 +302,13 @@ public class Client {
    * Class that represents an RPC call
    */
   static class Call {
-    final int id;               // call id
-    final int retry;           // retry count
-    final Writable rpcRequest;  // the serialized rpc request
-    Writable rpcResponse;       // null if rpc has error
-    IOException error;          // exception, null if success
-    final RPC.RpcKind rpcKind;      // Rpc EngineKind
-    boolean done;               // true when call is done
+    final int id;               // call id RPC请求的id
+    final int retry;           // retry count 重试次数
+    final Writable rpcRequest;  // the serialized rpc request 序列化的RPC请求
+    Writable rpcResponse;       // null if rpc has error 序列化的RPC响应，如果发生错误则这个字段为空
+    IOException error;          // exception, null if success 如果发生错误，则保存远程的异常
+    final RPC.RpcKind rpcKind;      // Rpc EngineKind RPC引擎类型
+    boolean done;               // true when call is done 调用操作是否完成
 
     private Call(RPC.RpcKind rpcKind, Writable param) {
       this.rpcKind = rpcKind;
@@ -333,8 +333,8 @@ public class Client {
     /** Indicate when the call is complete and the
      * value or error are available.  Notifies by default.  */
     protected synchronized void callComplete() {
-      this.done = true;
-      notify();                                 // notify caller
+      this.done = true; // 设置done字段为true，表明当前请求已经完成
+      notify();                                 // notify caller 唤醒在call对象上等待的线程
     }
 
     /** Set the exception when there is an error.
@@ -343,8 +343,8 @@ public class Client {
      * @param error exception thrown by the call; either local or remote
      */
     public synchronized void setException(IOException error) {
-      this.error = error;
-      callComplete();
+      this.error = error; // 保存异常信息
+      callComplete(); // 调用callComplete()方法，唤醒在Call对象上等待的线程
     }
     
     /** Set the return value when there is no error. 
@@ -353,8 +353,8 @@ public class Client {
      * @param rpcResponse return value of the rpc call.
      */
     public synchronized void setRpcResponse(Writable rpcResponse) {
-      this.rpcResponse = rpcResponse;
-      callComplete();
+      this.rpcResponse = rpcResponse; // 保存响应信息
+      callComplete();  // 调用callComplete()方法，唤醒在Call对象上等待的线程
     }
     
     public synchronized Writable getRpcResponse() {
@@ -366,19 +366,19 @@ public class Client {
    * socket connected to a remote address.  Calls are multiplexed through this
    * socket: responses may be delivered out of order. */
   private class Connection extends Thread {
-    private InetSocketAddress server;             // server ip:port
-    private final ConnectionId remoteId;                // connection id
+    private InetSocketAddress server;             // server ip:port server的ip和端口
+    private final ConnectionId remoteId;                // connection id唯一标识一个Connection
     private AuthMethod authMethod; // authentication method
     private AuthProtocol authProtocol;
     private int serviceClass;
     private SaslRpcClient saslRpcClient;
     
-    private Socket socket = null;                 // connected socket
+    private Socket socket = null;                 // connected socket到server的socket连接
     private DataInputStream in;
     private DataOutputStream out;
     private int rpcTimeout;
     private int maxIdleTime; //connections will be culled if it was idle for 
-    //maxIdleTime msecs
+    //maxIdleTime msecs 最长空闲时间
     private final RetryPolicy connectionRetryPolicy;
     private final int maxRetriesOnSasl;
     private int maxRetriesOnSocketTimeouts;
@@ -387,10 +387,10 @@ public class Client {
     private int pingInterval; // how often sends ping to the server in msecs
     private ByteArrayOutputStream pingRequest; // ping message
     
-    // currently active calls
+    // currently active calls 使用当前Connection发生的请求
     private Hashtable<Integer, Call> calls = new Hashtable<Integer, Call>();
     private AtomicLong lastActivity = new AtomicLong();// last I/O activity time
-    private AtomicBoolean shouldCloseConnection = new AtomicBoolean();  // indicate if the connection is closed
+    private AtomicBoolean shouldCloseConnection = new AtomicBoolean();  // indicate if the connection is closed 是否关闭当前Connection对象的标识符
     private IOException closeException; // close reason
     
     private final Object sendRpcRequestLock = new Object();
@@ -437,6 +437,7 @@ public class Client {
       this.setName("IPC Client (" + socketFactory.hashCode() +") connection to " +
           server.toString() +
           " from " + ((ticket==null)?"an unknown user":ticket.getUserName()));
+      // 将当前线程设置为守护线程
       this.setDaemon(true);
     }
 
@@ -455,7 +456,9 @@ public class Client {
     private synchronized boolean addCall(Call call) {
       if (shouldCloseConnection.get())
         return false;
+      // 将call放入到Connection的calls字段中
       calls.put(call.id, call);
+      // 这里调用的是Connection的notify()方法， 这是因为Connection有可能因为calls为空正处于wait状态，这里可以将其唤醒
       notify();
       return true;
     }
@@ -689,6 +692,7 @@ public class Client {
      */
     private synchronized void setupIOstreams(
         AtomicBoolean fallbackToSimpleAuth) {
+      // 已经创建连接，直接返回
       if (socket != null || shouldCloseConnection.get()) {
         return;
       } 
@@ -702,9 +706,12 @@ public class Client {
         short numRetries = 0;
         Random rand = null;
         while (true) {
+          // 建立一个连接，初始化socket
           setupConnection();
+          // 从socket创建输入输出流
           InputStream inStream = NetUtils.getInputStream(socket);
           OutputStream outStream = NetUtils.getOutputStream(socket);
+          // 向socket中写入connection header
           writeConnectionHeader(outStream);
           if (authProtocol == AuthProtocol.SASL) {
             final InputStream in2 = inStream;
@@ -757,6 +764,7 @@ public class Client {
           if (doPing) {
             inStream = new PingInputStream(inStream);
           }
+          // 封装输入输出流为缓冲流
           this.in = new DataInputStream(new BufferedInputStream(inStream));
 
           // SASL may have already buffered the stream
@@ -764,10 +772,10 @@ public class Client {
             outStream = new BufferedOutputStream(outStream);
           }
           this.out = new DataOutputStream(outStream);
-          
+          // 写入连接上下文
           writeConnectionContext(remoteId, authMethod);
 
-          // update last activity time
+          // update last activity time 更新上次活跃时间
           touch();
 
           if (Trace.isTracing()) {
@@ -775,7 +783,7 @@ public class Client {
           }
 
           // start the receiver thread after the socket connection has been set
-          // up
+          // up  启动Connection线程监听并接受Server发回的响应信息
           start();
           return;
         }
@@ -913,6 +921,7 @@ public class Client {
      */
     private synchronized boolean waitForWork() {
       if (calls.isEmpty() && !shouldCloseConnection.get()  && running.get())  {
+        // 队列为空，计算需要等待的时长
         long timeout = maxIdleTime-
               (Time.now()-lastActivity.get());
         if (timeout>0) {
@@ -929,7 +938,7 @@ public class Client {
       } else if (calls.isEmpty()) { // idle connection closed or stopped
         markClosed(null);
         return false;
-      } else { // get stopped but there are still pending requests 
+      } else { // get stopped but there are still pending requests 仍有等待处理的请求但是连接被关闭了
         markClosed((IOException)new IOException().initCause(
             new InterruptedException()));
         return false;
@@ -963,16 +972,18 @@ public class Client {
 
       try {
         while (waitForWork()) {//wait here for work - read or close connection
+          // 读取返回信息， 没有信息会block住
           receiveRpcResponse();
         }
       } catch (Throwable t) {
         // This truly is unexpected, since we catch IOException in receiveResponse
         // -- this is only to be really sure that we don't leave a client hanging
-        // forever.
+        // forever. 异常都在receiveRpcResponse中捕获，这里捕获未知的异常
         LOG.warn("Unexpected error reading responses on connection " + this, t);
         markClosed(new IOException("Error reading responses", t));
       }
-      
+
+      // 移除Connection，Call， 关闭Socket
       close();
       
       if (LOG.isDebugEnabled())
@@ -1004,12 +1015,16 @@ public class Client {
       //
       // Items '1' and '2' are prepared here. 
       final DataOutputBuffer d = new DataOutputBuffer();
+      // 先构造RPC请求头
       RpcRequestHeaderProto header = ProtoUtil.makeRpcRequestHeader(
           call.rpcKind, OperationProto.RPC_FINAL_PACKET, call.id, call.retry,
           clientId);
+      // 将RPC请求头写入输出流
       header.writeDelimitedTo(d);
+      // 将RPC请求写入输出流
       call.rpcRequest.write(d);
 
+      // 这里使用线程池将请求发送出去，请求包括3个部分：1：长度 2：RPC请求头 3：RPC请求(包括请求元数据以及请求参数)
       synchronized (sendRpcRequestLock) {
         Future<?> senderFuture = sendParamsExecutor.submit(new Runnable() {
           @Override
@@ -1025,30 +1040,32 @@ public class Client {
          
                 byte[] data = d.getData();
                 int totalLength = d.getLength();
-                out.writeInt(totalLength); // Total Length
-                out.write(data, 0, totalLength);// RpcRequestHeader + RpcRequest
+                out.writeInt(totalLength); // Total Length 总长度
+                out.write(data, 0, totalLength);// RpcRequestHeader + RpcRequest RPC请求头+RPC请求(请求元数据+参数)
                 out.flush();
               }
             } catch (IOException e) {
               // exception at this point would leave the connection in an
               // unrecoverable state (eg half a call left on the wire).
               // So, close the connection, killing any outstanding calls
+              // 如果发生异常，直接关闭连接
               markClosed(e);
             } finally {
               //the buffer is just an in-memory buffer, but it is still polite to
-              // close early
+              // close early 关闭之前申请的buffer
               IOUtils.closeStream(d);
             }
           }
         });
-      
+
+        // 获取执行结果
         try {
           senderFuture.get();
         } catch (ExecutionException e) {
           Throwable cause = e.getCause();
           
           // cause should only be a RuntimeException as the Runnable above
-          // catches IOException
+          // catches IOException 如果有异常直接抛出
           if (cause instanceof RuntimeException) {
             throw (RuntimeException) cause;
           } else {
@@ -1068,6 +1085,7 @@ public class Client {
       touch();
       
       try {
+        // 读取输入流中的数据，这里请求还未发送，所以会block住，直到有数据返回
         int totalLen = in.readInt();
         RpcResponseHeaderProto header = 
             RpcResponseHeaderProto.parseDelimitedFrom(in);
@@ -1080,12 +1098,15 @@ public class Client {
         if (LOG.isDebugEnabled())
           LOG.debug(getName() + " got value #" + callId);
 
+        // 根据callId获取对应的call对象
         Call call = calls.get(callId);
         RpcStatusProto status = header.getStatus();
+        // 如果调用成功，则读取响应信息，在call实例中设置
         if (status == RpcStatusProto.SUCCESS) {
           Writable value = ReflectionUtils.newInstance(valueClass, conf);
           value.readFields(in);                 // read value
           calls.remove(callId);
+          // 设置返回值，并唤醒call上的等待
           call.setRpcResponse(value);
           
           // verify that length was correct
@@ -1098,13 +1119,14 @@ public class Client {
                   "RPC response length mismatch on rpc success");
             }
           }
-        } else { // Rpc Request failed
+        } else { // Rpc Request failed RPC调用失败
           // Verify that length was correct
           if (totalLen != headerLen) {
             throw new RpcClientException(
                 "RPC response length mismatch on rpc error");
           }
-          
+
+          // 取出响应中的异常信息
           final String exceptionClassName = header.hasExceptionClassName() ?
                 header.getExceptionClassName() : 
                   "ServerDidNotSetExceptionClassName";
@@ -1115,12 +1137,14 @@ public class Client {
           if (erCode == null) {
              LOG.warn("Detailed error code not set by server on rpc error");
           }
+          // 构造异常信息
           RemoteException re = 
               ( (erCode == null) ? 
                   new RemoteException(exceptionClassName, errorMsg) :
               new RemoteException(exceptionClassName, errorMsg, erCode));
           if (status == RpcStatusProto.ERROR) {
             calls.remove(callId);
+            // 设置异常信息，并唤醒call上的等待
             call.setException(re);
           } else if (status == RpcStatusProto.FATAL) {
             // Close the connection
@@ -1380,12 +1404,13 @@ public class Client {
     return call(rpcKind, rpcRequest, remoteId, RPC.RPC_SERVICE_CLASS_DEFAULT);
   }
 
-  /** 
+  /**
+   * 通过call方法将请求发送到远程服务器
    * Make a call, passing <code>rpcRequest</code>, to the IPC server defined by
    * <code>remoteId</code>, returning the rpc respond.
    *
-   * @param rpcKind
-   * @param rpcRequest -  contains serialized method and method parameters
+   * @param rpcKind 用于描述RPC请求的序列化工具类型
+   * @param rpcRequest -  contains serialized method and method parameters 用于记录序列化后的RPC类型
    * @param remoteId - the target rpc server
    * @param fallbackToSimpleAuth - set to true or false during this method to
    *   indicate if a secure client falls back to simple auth
@@ -1434,10 +1459,13 @@ public class Client {
   public Writable call(RPC.RpcKind rpcKind, Writable rpcRequest,
       ConnectionId remoteId, int serviceClass,
       AtomicBoolean fallbackToSimpleAuth) throws IOException {
+    // 将RPC请求封装成一个call对象
     final Call call = createCall(rpcKind, rpcRequest);
+    // 创建一个Connection对象，用于管理Client与Server的Socket连接，同时启动Connection线程
     Connection connection = getConnection(remoteId, call, serviceClass,
       fallbackToSimpleAuth);
     try {
+      // 发送请求
       connection.sendRpcRequest(call);                 // send the rpc request
     } catch (RejectedExecutionException e) {
       throw new IOException("connection has been closed", e);
@@ -1451,7 +1479,7 @@ public class Client {
     synchronized (call) {
       while (!call.done) {
         try {
-          call.wait();                           // wait for the result
+          call.wait();                           // wait for the result 没有执行完，则等待
         } catch (InterruptedException ie) {
           // save the fact that we were interrupted
           interrupted = true;
@@ -1463,7 +1491,7 @@ public class Client {
         Thread.currentThread().interrupt();
       }
 
-      if (call.error != null) {
+      if (call.error != null) { // 服务器处理RPC请求出现异常
         if (call.error instanceof RemoteException) {
           call.error.fillInStackTrace();
           throw call.error;
@@ -1476,6 +1504,7 @@ public class Client {
                   call.error);
         }
       } else {
+        // 服务器成功发回响应信息，返回RPC响应
         return call.getRpcResponse();
       }
     }
@@ -1506,18 +1535,21 @@ public class Client {
      */
     do {
       synchronized (connections) {
+        // 尝试从Client.connections队列中获取Connection对象
         connection = connections.get(remoteId);
         if (connection == null) {
+          // Client.connections队列中没有保存，构造一个Connection
           connection = new Connection(remoteId, serviceClass);
           connections.put(remoteId, connection);
         }
       }
-    } while (!connection.addCall(call));
+    } while (!connection.addCall(call)); // 将待发送请求对应的Call对象放入Connection.calls队列
     
     //we don't invoke the method below inside "synchronized (connections)"
     //block above. The reason for that is if the server happens to be slow,
     //it will take longer to establish a connection and that will slow the
     //entire system down.
+    // setupIOstreams的作用是初始化Connection对象：连接到服务端并创建IO流，即创建一个socket连接， 同时启动Connection线程
     connection.setupIOstreams(fallbackToSimpleAuth);
     return connection;
   }

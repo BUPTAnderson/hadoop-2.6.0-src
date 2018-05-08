@@ -99,10 +99,12 @@ public class RetryInvocationHandler<T> implements RpcInvocationHandler {
         Client.setCallIdAndRetryCount(callId, retries);
       }
       try {
+        // 调用currentProxy的proxy执行方法
         Object ret = invokeMethod(method, args);
         hasMadeASuccessfulCall = true;
         return ret;
       } catch (Exception e) {
+        // 这里的getInterface方法是FailoverProxyProvider的内部方法，返回的是Class<T>, 这里判断接口里面的方法的注解是否是Idempotent， 即是否是幂等的
         boolean isIdempotentOrAtMostOnce = proxyProvider.getInterface()
             .getMethod(method.getName(), method.getParameterTypes())
             .isAnnotationPresent(Idempotent.class);
@@ -111,6 +113,7 @@ public class RetryInvocationHandler<T> implements RpcInvocationHandler {
               .getMethod(method.getName(), method.getParameterTypes())
               .isAnnotationPresent(AtMostOnce.class);
         }
+        // policy默认是FailoverOnNetworkException
         RetryAction action = policy.shouldRetry(e, retries++,
             invocationFailoverCount, isIdempotentOrAtMostOnce);
         if (action.action == RetryAction.RetryDecision.FAIL) {
@@ -156,6 +159,7 @@ public class RetryInvocationHandler<T> implements RpcInvocationHandler {
             // single actual fail over.
             synchronized (proxyProvider) {
               if (invocationAttemptFailoverCount == proxyProviderFailoverCount) {
+                // 更新active namenode
                 proxyProvider.performFailover(currentProxy.proxy);
                 proxyProviderFailoverCount++;
               } else {

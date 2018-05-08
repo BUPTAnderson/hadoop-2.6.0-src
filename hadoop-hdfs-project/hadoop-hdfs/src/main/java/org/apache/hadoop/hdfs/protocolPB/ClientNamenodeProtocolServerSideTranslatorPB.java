@@ -229,6 +229,7 @@ import com.google.protobuf.ServiceException;
 @InterfaceStability.Stable
 public class ClientNamenodeProtocolServerSideTranslatorPB implements
     ClientNamenodeProtocolPB {
+  // server实际是一个NameNodeRPCServer对象
   final private ClientProtocol server;
   static final DeleteSnapshotResponseProto VOID_DELETE_SNAPSHOT_RESPONSE =
       DeleteSnapshotResponseProto.newBuilder().build();

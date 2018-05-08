@@ -244,6 +244,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
 
   private final Configuration conf;
   private final Conf dfsClientConf;
+  // namenode实际是一个ClientNamenodeProtocolTranslatorPB对象， 可以查看DFSClient的构造方法: DFSClient(URI nameNodeUri, ClientProtocol rpcNamenode, Configuration conf, FileSystem.Statistics stats)
   final ClientProtocol namenode;
   /* The service used for delegation tokens */
   private Text dtService;
@@ -569,6 +570,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
       = new HashMap<Long, DFSOutputStream>();
 
   /**
+   * 构造一个DFSClinet
    * Same as this(NameNode.getAddress(conf), conf);
    * @see #DFSClient(InetSocketAddress, Configuration)
    * @deprecated Deprecated at 0.21
@@ -583,7 +585,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
   }
 
   /**
-   * Same as this(nameNodeUri, conf, null);
+   * Same as this(nameNodeUri, conf, null); 构造客户端
    * @see #DFSClient(URI, Configuration, FileSystem.Statistics)
    */
   public DFSClient(URI nameNodeUri, Configuration conf
@@ -641,6 +643,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
         DFSConfigKeys.DFS_CLIENT_TEST_DROP_NAMENODE_RESPONSE_NUM_DEFAULT);
     NameNodeProxies.ProxyAndInfo<ClientProtocol> proxyInfo = null;
     AtomicBoolean nnFallbackToSimpleAuth = new AtomicBoolean(false);
+    // 默认值为0
     if (numResponseToDrop > 0) {
       // This case is used for testing.
       LOG.warn(DFSConfigKeys.DFS_CLIENT_TEST_DROP_NAMENODE_RESPONSE_NUM_KEY
@@ -650,7 +653,8 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
           nameNodeUri, ClientProtocol.class, numResponseToDrop,
           nnFallbackToSimpleAuth);
     }
-    
+
+    // proxyInfo默认为null，rpcNamenode默认为null， 执行else中的逻辑
     if (proxyInfo != null) {
       this.dtService = proxyInfo.getDelegationTokenService();
       this.namenode = proxyInfo.getProxy();
@@ -662,9 +666,11 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
     } else {
       Preconditions.checkArgument(nameNodeUri != null,
           "null URI");
+      // 创建proxyInfo对象，该对象的参数proxy会赋值给namenode
       proxyInfo = NameNodeProxies.createProxy(conf, nameNodeUri,
           ClientProtocol.class, nnFallbackToSimpleAuth);
       this.dtService = proxyInfo.getDelegationTokenService();
+      // 将proxyInfo的属性proxy赋值给namenode
       this.namenode = proxyInfo.getProxy();
     }
 

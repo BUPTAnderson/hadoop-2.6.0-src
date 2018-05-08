@@ -115,7 +115,8 @@ public class NameNodeResourceChecker {
     
     Collection<URI> extraCheckedVolumes = Util.stringCollectionAsURIs(conf
         .getTrimmedStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKED_VOLUMES_KEY));
-    
+
+    // 过滤出editsDirs中配置的本地的目录，即过滤掉JNs组(JournalNode)的uri
     Collection<URI> localEditDirs = Collections2.filter(
         FSNamesystem.getNamespaceEditsDirs(conf),
         new Predicate<URI>() {
@@ -130,6 +131,7 @@ public class NameNodeResourceChecker {
 
     // Add all the local edits dirs, marking some as required if they are
     // configured as such.
+    // 配置目录空间检查
     for (URI editsDirToCheck : localEditDirs) {
       addDirToCheck(editsDirToCheck,
           FSNamesystem.getRequiredNamespaceEditsDirs(conf).contains(

@@ -558,6 +558,7 @@ public class RetryPolicies {
     @Override
     public RetryAction shouldRetry(Exception e, int retries,
         int failovers, boolean isIdempotentOrAtMostOnce) throws Exception {
+      // 超过最大次数，返回RetryAction.RetryDecision.FAIL
       if (failovers >= maxFailovers) {
         return new RetryAction(RetryAction.RetryDecision.FAIL, 0,
             "failovers (" + failovers + ") exceeded maximum allowed ("
@@ -574,6 +575,7 @@ public class RetryPolicies {
           e instanceof StandbyException ||
           e instanceof ConnectTimeoutException ||
           isWrappedStandbyException(e)) {
+        // 返回FAILOVER_AND_RETRY， 表明需要执行performFailover()操作更新Active Namenode的引用
         return new RetryAction(RetryAction.RetryDecision.FAILOVER_AND_RETRY,
             getFailoverOrRetrySleepTime(failovers));
       } else if (e instanceof RetriableException
@@ -583,6 +585,7 @@ public class RetryPolicies {
               getFailoverOrRetrySleepTime(retries));
       } else if (e instanceof SocketException
           || (e instanceof IOException && !(e instanceof RemoteException))) {
+        // 如果是幂等操作，重试， 否则返回FAIL表明调用失败
         if (isIdempotentOrAtMostOnce) {
           return RetryAction.FAILOVER_AND_RETRY;
         } else {

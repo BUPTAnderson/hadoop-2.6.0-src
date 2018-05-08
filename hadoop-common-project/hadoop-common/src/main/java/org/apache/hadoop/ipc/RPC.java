@@ -146,6 +146,7 @@ public class RPC {
     if (protocol == null) {
       return null;
     }
+    // 获取注解
     ProtocolInfo anno = protocol.getAnnotation(ProtocolInfo.class);
     return  (anno == null) ? protocol.getName() : anno.protocolName();
   }
@@ -186,6 +187,7 @@ public class RPC {
   private static final String ENGINE_PROP = "rpc.engine";
 
   /**
+   * 在NameNodeRpcServer中会调用该方法，设置为 <"rpc.engine.ClientNamenodeProtocolPB", ProtobufRpcEngine.class>
    * Set a protocol to use a non-default RpcEngine.
    * @param conf configuration to use
    * @param protocol the protocol interface
@@ -193,6 +195,7 @@ public class RPC {
    */
   public static void setProtocolEngine(Configuration conf,
                                 Class<?> protocol, Class<?> engine) {
+    // 下面的语句实际会影响属性PROTOCOL_ENGINES，见下一个方法getProtocolEngine
     conf.setClass(ENGINE_PROP+"."+protocol.getName(), engine, RpcEngine.class);
   }
 
@@ -203,6 +206,7 @@ public class RPC {
     if (engine == null) {
       Class<?> impl = conf.getClass(ENGINE_PROP+"."+protocol.getName(),
                                     WritableRpcEngine.class);
+      // 通过反射创建RpcEngine
       engine = (RpcEngine)ReflectionUtils.newInstance(impl, conf);
       PROTOCOL_ENGINES.put(protocol, engine);
     }
@@ -538,6 +542,7 @@ public class RPC {
    }
 
   /**
+   * RPC类中最重要的一个方法，用于获取一个指定RPC接口的代理对象
    * Get a protocol proxy that contains a proxy connection to a remote server
    * and a set of methods that are supported by the server
    *
@@ -567,6 +572,7 @@ public class RPC {
     if (UserGroupInformation.isSecurityEnabled()) {
       SaslRpcServer.init(conf);
     }
+    // 这里默认调用的是ProtobufRpcEngine的getProxy方法
     return getProtocolEngine(protocol, conf).getProxy(protocol, clientVersion,
         addr, ticket, conf, factory, rpcTimeout, connectionRetryPolicy,
         fallbackToSimpleAuth);
@@ -758,11 +764,12 @@ public class RPC {
     }
     
     /**
-     * Build the RPC Server. 
+     * Build the RPC Server. 工厂模式
      * @throws IOException on error
      * @throws HadoopIllegalArgumentException when mandatory fields are not set
      */
     public Server build() throws IOException, HadoopIllegalArgumentException {
+      // 参数检查
       if (this.conf == null) {
         throw new HadoopIllegalArgumentException("conf is not set");
       }
@@ -772,7 +779,7 @@ public class RPC {
       if (this.instance == null) {
         throw new HadoopIllegalArgumentException("instance is not set");
       }
-      
+      // 调用的是ProtobufRpcEngine的getServer方法
       return getProtocolEngine(this.protocol, this.conf).getServer(
           this.protocol, this.instance, this.bindAddress, this.port,
           this.numHandlers, this.numReaders, this.queueSizePerHandler,
@@ -850,6 +857,7 @@ public class RPC {
    // Register  protocol and its impl for rpc calls
    void registerProtocolAndImpl(RpcKind rpcKind, Class<?> protocolClass, 
        Object protocolImpl) {
+       // 注意，这里并没有直接使用protocolClass的名字，而是获取protocolClass的注解ProtocolInfo属性protocolName的值
      String protocolName = RPC.getProtocolName(protocolClass);
      long version;
      
@@ -863,6 +871,7 @@ public class RPC {
      }
 
 
+     //构造一个ProtoNameVer对象作为key， 这里protocolName，version与client端发送过来的参数一致
      getProtocolImplMap(rpcKind).put(new ProtoNameVer(protocolName, version),
          new ProtoClassProtoImpl(protocolClass, protocolImpl)); 
      LOG.debug("RpcKind = " + rpcKind + " Protocol Name = " + protocolName +  " version=" + version +
@@ -928,6 +937,7 @@ public class RPC {
                      Configuration conf, String serverName, 
                      SecretManager<? extends TokenIdentifier> secretManager,
                      String portRangeConfig) throws IOException {
+      // 调用父类ipc.Server的构造方法，ipc.Server的构造方法里面会做很多初始化的操作
       super(bindAddress, port, paramClass, handlerCount, numReaders, queueSizePerHandler,
             conf, serverName, secretManager, portRangeConfig);
       initProtocolMetaInfo(conf);
@@ -952,6 +962,7 @@ public class RPC {
      */
     public Server addProtocol(RpcKind rpcKind, Class<?> protocolClass,
         Object protocolImpl) {
+      // 增加实现类到map中
       registerProtocolAndImpl(rpcKind, protocolClass, protocolImpl);
       return this;
     }
@@ -959,6 +970,7 @@ public class RPC {
     @Override
     public Writable call(RPC.RpcKind rpcKind, String protocol,
         Writable rpcRequest, long receiveTime) throws Exception {
+      // 这里调用ProtoBufRpcInvoker的call方法
       return getRpcInvoker(rpcKind).call(this, protocol, rpcRequest,
           receiveTime);
     }

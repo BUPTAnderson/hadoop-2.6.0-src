@@ -64,12 +64,15 @@ class HeartbeatManager implements DatanodeStatistics {
       final BlockManager blockManager, final Configuration conf) {
     this.namesystem = namesystem;
     this.blockManager = blockManager;
+    // 是否允许数据写入超时的datanodes
     boolean avoidStaleDataNodesForWrite = conf.getBoolean(
         DFSConfigKeys.DFS_NAMENODE_AVOID_STALE_DATANODE_FOR_WRITE_KEY,
         DFSConfigKeys.DFS_NAMENODE_AVOID_STALE_DATANODE_FOR_WRITE_DEFAULT);
+    // 检查间隔， 默认5分钟
     long recheckInterval = conf.getInt(
         DFSConfigKeys.DFS_NAMENODE_HEARTBEAT_RECHECK_INTERVAL_KEY,
         DFSConfigKeys.DFS_NAMENODE_HEARTBEAT_RECHECK_INTERVAL_DEFAULT); // 5 min
+    // 超过30s没有收到心跳，则认为标记该datanode为stale，过期/陈旧的
     long staleInterval = conf.getLong(
         DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_INTERVAL_KEY,
         DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_INTERVAL_DEFAULT);// 30s
@@ -266,22 +269,27 @@ class HeartbeatManager implements DatanodeStatistics {
     final DatanodeManager dm = blockManager.getDatanodeManager();
     // It's OK to check safe mode w/o taking the lock here, we re-check
     // for safe mode after taking the lock before removing a datanode.
+    // 如果处于启动过程中的safemode状态，则不进行检查（空检查）
     if (namesystem.isInStartupSafeMode()) {
       return;
     }
     boolean allAlive = false;
     while (!allAlive) {
+      // 记录第一个死亡的datanode
       // locate the first dead node.
       DatanodeID dead = null;
 
       // locate the first failed storage that isn't on a dead node.
+      // 记录非死亡datanode上的第一个失败数据目录
       DatanodeStorageInfo failedStorage = null;
 
       // check the number of stale nodes
       int numOfStaleNodes = 0;
       int numOfStaleStorages = 0;
       synchronized(this) {
+        // 检查节点与数据目录
         for (DatanodeDescriptor d : datanodes) {
+          // 检查节点是否死亡或过时
           if (dead == null && dm.isDatanodeDead(d)) {
             stats.incrExpiredHeartbeats();
             dead = d;
@@ -289,6 +297,7 @@ class HeartbeatManager implements DatanodeStatistics {
           if (d.isStale(dm.getStaleInterval())) {
             numOfStaleNodes++;
           }
+          // 如果节点存储且未过时，则检查节点上的所有数据目录是否过时或失败
           DatanodeStorageInfo[] storageInfos = d.getStorageInfos();
           for(DatanodeStorageInfo storageInfo : storageInfos) {
             if (storageInfo.areBlockContentsStale()) {
@@ -311,6 +320,7 @@ class HeartbeatManager implements DatanodeStatistics {
 
       allAlive = dead == null && failedStorage == null;
       if (dead != null) {
+        // 移除第一个死亡的数据节点及其关联的副本
         // acquire the fsnamesystem lock, and then remove the dead node.
         namesystem.writeLock();
         try {
@@ -325,6 +335,7 @@ class HeartbeatManager implements DatanodeStatistics {
         }
       }
       if (failedStorage != null) {
+        // 移除第一个失败数据目录关联的副本
         // acquire the fsnamesystem lock, and remove blocks on the storage.
         namesystem.writeLock();
         try {
@@ -352,7 +363,9 @@ class HeartbeatManager implements DatanodeStatistics {
       while(namesystem.isRunning()) {
         try {
           final long now = Time.now();
+          // heartbeatRecheckInterval默认值为5分钟
           if (lastHeartbeatCheck + heartbeatRecheckInterval < now) {
+            // 根据心跳信息检查节点与数据目录
             heartbeatCheck();
             lastHeartbeatCheck = now;
           }

@@ -217,6 +217,7 @@ class PendingReplicationBlocks {
       while (fsRunning) {
         long period = Math.min(DEFAULT_RECHECK_INTERVAL, timeout);
         try {
+          // 每隔5分钟检查一次正在复制的数据块是否超时
           pendingReplicationCheck();
           Thread.sleep(period);
         } catch (InterruptedException ie) {
@@ -232,6 +233,7 @@ class PendingReplicationBlocks {
      */
     void pendingReplicationCheck() {
       synchronized (pendingReplications) {
+        // pendingReplications是正在复制的数据块缓冲区
         Iterator<Map.Entry<Block, PendingBlockInfo>> iter =
                                     pendingReplications.entrySet().iterator();
         long now = now();
@@ -241,6 +243,7 @@ class PendingReplicationBlocks {
         while (iter.hasNext()) {
           Map.Entry<Block, PendingBlockInfo> entry = iter.next();
           PendingBlockInfo pendingBlock = entry.getValue();
+          // 如果数据块超时，则将其添加到复制超时数据块缓冲区timedOutItems
           if (now > pendingBlock.getTimeStamp() + timeout) {
             Block block = entry.getKey();
             synchronized (timedOutItems) {

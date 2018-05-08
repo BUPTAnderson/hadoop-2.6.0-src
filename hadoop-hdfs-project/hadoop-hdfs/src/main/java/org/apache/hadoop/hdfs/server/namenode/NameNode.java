@@ -583,18 +583,23 @@ public class NameNode implements NameNodeStatusMXBean {
     UserGroupInformation.setConfiguration(conf);
     loginAsNameNodeUser(conf);
 
+    // 初始化metric
     NameNode.initMetrics(conf, this.getRole());
     StartupProgressMetrics.register(startupProgress);
 
+    // 启动httpServer(http服务)
     if (NamenodeRole.NAMENODE == role) {
       startHttpServer(conf);
     }
 
     this.spanReceiverHost = SpanReceiverHost.getInstance(conf);
 
+    //初始化FSNamesystem， namenode对文件系统的管理都是由FSNamesystem对象来负责的
     loadNamesystem(conf);
 
+    // 创建RPC服务
     rpcServer = createRpcServer(conf);
+    // NameNode的构造方法中已经初始化过clientNamenodeAddress
     if (clientNamenodeAddress == null) {
       // This is expected for MiniDFSCluster. Set it now using 
       // the RPC server's bind address.
@@ -607,11 +612,13 @@ public class NameNode implements NameNodeStatusMXBean {
       httpServer.setNameNodeAddress(getNameNodeAddress());
       httpServer.setFSImage(getFSImage());
     }
-    
+
+    // 构造JvmPauseMonitor对象，并启动
     pauseMonitor = new JvmPauseMonitor(conf);
     pauseMonitor.start();
     metrics.getJvmMetrics().setPauseMonitor(pauseMonitor);
-    
+
+    // 启动httpServer(针对role不是"NameNode")以及rpcServer
     startCommonServices(conf);
   }
   
@@ -628,11 +635,13 @@ public class NameNode implements NameNodeStatusMXBean {
   private void startCommonServices(Configuration conf) throws IOException {
     namesystem.startCommonServices(conf, haContext);
     registerNNSMXBean();
+    // role不是"NameNode"的话启动httpServer
     if (NamenodeRole.NAMENODE != role) {
       startHttpServer(conf);
       httpServer.setNameNodeAddress(getNameNodeAddress());
       httpServer.setFSImage(getFSImage());
     }
+    // 启动rpcServer
     rpcServer.start();
     plugins = conf.getInstances(DFS_NAMENODE_PLUGINS_KEY,
         ServicePlugin.class);
@@ -750,27 +759,35 @@ public class NameNode implements NameNodeStatusMXBean {
       throws IOException { 
     this.conf = conf;
     this.role = role;
+    // 设置NameNode的clientNamenodeAddress为"hdfs://localhost:9000"
     setClientNamenodeAddress(conf);
     String nsId = getNameServiceId(conf);
     String namenodeId = HAUtil.getNameNodeId(conf, nsId);
+    // HA相关， 根据配置确认是否开启了HA，伪分布情况下返回false
     this.haEnabled = HAUtil.isHAEnabled(conf, nsId);
+    // 对于伪分布式情况，namenode仍然拥有一个HAState， 此时， namenode的state是ACTIVE_STATE， 对于开启了HA的情况，返回的是STANDBY_STATE
     state = createHAState(getStartupOption(conf));
     this.allowStaleStandbyReads = HAUtil.shouldAllowStandbyReads(conf);
     this.haContext = createHAContext();
     try {
       initializeGenericKeys(conf, nsId, namenodeId);
+      // 完成实际的的初始化工作， 初始化namenode
       initialize(conf);
+      // 与HA相关的操作， 根据state类型分别执行不同的操作
       try {
         haContext.writeLock();
         state.prepareToEnterState(haContext);
+        // 根据state类型不同，执行不同的enterState逻辑
         state.enterState(haContext);
       } finally {
         haContext.writeUnlock();
       }
     } catch (IOException e) {
+      // 出现异常直接停止Namenode服务
       this.stop();
       throw e;
     } catch (HadoopIllegalArgumentException e) {
+      // 出现异常直接停止Namenode服务
       this.stop();
       throw e;
     }
@@ -795,6 +812,7 @@ public class NameNode implements NameNodeStatusMXBean {
    */
   public void join() {
     try {
+      // 等待RPC服务执行完毕， 通常情况下这个服务是一直循环执行的， RPCServer关闭的话，其它守护进程会自动关闭
       rpcServer.join();
     } catch (InterruptedException ie) {
       LOG.info("Caught interrupted exception ", ie);
@@ -1367,15 +1385,19 @@ public class NameNode implements NameNodeStatusMXBean {
     LOG.info("createNameNode " + Arrays.asList(argv));
     if (conf == null)
       conf = new HdfsConfiguration();
+    // 解析启动参数， 正常返回的是StartupOption.REGULAR
     StartupOption startOpt = parseArguments(argv);
     if (startOpt == null) {
       printUsage(System.err);
       return null;
     }
+    // 给conf增加一个参数项 <"dfs.namenode.startup", "-regular">
     setStartupOption(conf, startOpt);
 
+    // 正常启动的话执行default中的逻辑
     switch (startOpt) {
       case FORMAT: {
+        // 格式化当前NameNode，调用format()方法执行格式化操作
         boolean aborted = format(conf, startOpt.getForceFormat(),
             startOpt.getInteractiveFormat());
         terminate(aborted ? 1 : 0);
@@ -1388,6 +1410,7 @@ public class NameNode implements NameNodeStatusMXBean {
         return null;
       }
       case FINALIZE: {
+        // 提交上一次升级，目前该命令已经不再支持，使用hdfs dfsadmin -finalizeUpgrade
         System.err.println("Use of the argument '" + StartupOption.FINALIZE +
             "' is no longer supported. To finalize an upgrade, start the NN " +
             " and then run `hdfs dfsadmin -finalizeUpgrade'");
@@ -1434,7 +1457,9 @@ public class NameNode implements NameNodeStatusMXBean {
         return null;
       }
       default: {
+        // 初始化metric系统
         DefaultMetricsSystem.initialize("NameNode");
+        // 创建NameNode对象并返回
         return new NameNode(conf);
       }
     }
@@ -1501,12 +1526,15 @@ public class NameNode implements NameNodeStatusMXBean {
 
     try {
       StringUtils.startupShutdownMessage(NameNode.class, argv, LOG);
+      // 调用createNameNode()方法创建NameNode对象， 这个是最核心的方法
       NameNode namenode = createNameNode(argv, null);
+      // join方法是等待RPC服务结束，关闭namenode
       if (namenode != null) {
         namenode.join();
       }
     } catch (Throwable e) {
       LOG.fatal("Failed to start namenode.", e);
+      // 出现异常则直接退出执行
       terminate(1, e);
     }
   }
@@ -1652,6 +1680,7 @@ public class NameNode implements NameNodeStatusMXBean {
     @Override
     public void startActiveServices() throws IOException {
       try {
+        // active namenode会调用namesystem的startActiveServices方法
         namesystem.startActiveServices();
         startTrashEmptier(conf);
       } catch (Throwable t) {

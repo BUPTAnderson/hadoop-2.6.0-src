@@ -62,12 +62,14 @@ public class ConfiguredFailoverProxyProvider<T> extends
 
   public ConfiguredFailoverProxyProvider(Configuration conf, URI uri,
       Class<T> xface) {
+    // 检查NamenodeProtocols是不是xface的子类
     Preconditions.checkArgument(
         xface.isAssignableFrom(NamenodeProtocols.class),
         "Interface class %s is not a valid NameNode protocol!");
     this.xface = xface;
     
     this.conf = new Configuration(conf);
+    // 默认为0
     int maxRetries = this.conf.getInt(
         DFSConfigKeys.DFS_CLIENT_FAILOVER_CONNECTION_RETRIES_KEY,
         DFSConfigKeys.DFS_CLIENT_FAILOVER_CONNECTION_RETRIES_DEFAULT);
@@ -84,9 +86,11 @@ public class ConfiguredFailoverProxyProvider<T> extends
     
     try {
       ugi = UserGroupInformation.getCurrentUser();
-      
+
+      // map格式为<nameservice_id, <nn_id, address>>
       Map<String, Map<String, InetSocketAddress>> map = DFSUtil.getHaNnRpcAddresses(
           conf);
+      // addressesInNN格式为<nn_id, address>
       Map<String, InetSocketAddress> addressesInNN = map.get(uri.getHost());
       
       if (addressesInNN == null || addressesInNN.size() == 0) {
@@ -95,6 +99,7 @@ public class ConfiguredFailoverProxyProvider<T> extends
       }
       
       Collection<InetSocketAddress> addressesOfNns = addressesInNN.values();
+      // 根据active 和standby的address创建AddressRpcProxyPair对象
       for (InetSocketAddress address : addressesOfNns) {
         proxies.add(new AddressRpcProxyPair<T>(address));
       }
@@ -119,8 +124,10 @@ public class ConfiguredFailoverProxyProvider<T> extends
   @Override
   public synchronized ProxyInfo<T> getProxy() {
     AddressRpcProxyPair<T> current = proxies.get(currentProxyIndex);
+    // 第一次调用的时候是null， 可以看作是一种懒加载模式
     if (current.namenode == null) {
       try {
+        // 这里创建ProxyAndInfo和NameNodeProxies中createProxy方法非HA情况下创建是一样的
         current.namenode = NameNodeProxies.createNonHAProxy(conf,
             current.address, xface, ugi, false, fallbackToSimpleAuth).getProxy();
       } catch (IOException e) {
@@ -133,6 +140,7 @@ public class ConfiguredFailoverProxyProvider<T> extends
 
   @Override
   public synchronized void performFailover(T currentProxy) {
+    // 将索引改为下一个
     currentProxyIndex = (currentProxyIndex + 1) % proxies.size();
   }
 

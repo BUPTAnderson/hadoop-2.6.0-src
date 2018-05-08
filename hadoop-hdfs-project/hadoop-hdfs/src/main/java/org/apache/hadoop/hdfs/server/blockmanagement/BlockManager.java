@@ -268,12 +268,14 @@ public class BlockManager {
   public BlockManager(final Namesystem namesystem, final FSClusterStats stats,
       final Configuration conf) throws IOException {
     this.namesystem = namesystem;
+    // 初始化datanodeManager， heartbeatManager，heartbeatManager实际是datanodeManager创建的
     datanodeManager = new DatanodeManager(this, namesystem, conf);
     heartbeatManager = datanodeManager.getHeartbeatManager();
 
     startupDelayBlockDeletionInMs = conf.getLong(
         DFSConfigKeys.DFS_NAMENODE_STARTUP_DELAY_BLOCK_DELETION_SEC_KEY,
         DFSConfigKeys.DFS_NAMENODE_STARTUP_DELAY_BLOCK_DELETION_SEC_DEFAULT) * 1000L;
+    // 默认值为1000
     invalidateBlocks = new InvalidateBlocks(
         datanodeManager.blockInvalidateLimit, startupDelayBlockDeletionInMs);
 
@@ -328,7 +330,9 @@ public class BlockManager {
         conf.get(DFSConfigKeys.NET_TOPOLOGY_SCRIPT_FILE_NAME_KEY) == null
             ? false : true;
 
+    // 默认值0.32
     this.blocksInvalidateWorkPct = DFSUtil.getInvalidateWorkPctPerIteration(conf);
+    // 默认值为2
     this.blocksReplWorkMultiplier = DFSUtil.getReplWorkMultiplier(conf);
 
     this.replicationRecheckInterval = 
@@ -444,8 +448,11 @@ public class BlockManager {
   }
 
   public void activate(Configuration conf) {
+    // 启动pendingReplications， 实际是启动了PendingReplicationMonitor
     pendingReplications.start();
+    // 激活DatanodeManager：启动DecommissionManager#Monitor、HeartbeatManager#Monitor
     datanodeManager.activate(conf);
+    // 启动replicationThread， 实际是启动了一个ReplicationMonitor线程
     this.replicationThread.start();
   }
 
@@ -1074,7 +1081,9 @@ public class BlockManager {
     DatanodeDescriptor node = storageInfo.getDatanodeDescriptor();
     while(it.hasNext()) {
       Block block = it.next();
+      // 从几个缓冲区中移除相关副本
       removeStoredBlock(block, node);
+      // 从invalidateBlocks中移除相关副本
       invalidateBlocks.remove(node, block);
     }
     namesystem.checkSafeMode();
@@ -1299,12 +1308,13 @@ public class BlockManager {
     List<List<Block>> blocksToReplicate = null;
     namesystem.writeLock();
     try {
-      // Choose the blocks to be replicated
+      // Choose the blocks to be replicated 遍历需要复制数据块缓冲区neededReplications
       blocksToReplicate = neededReplications
           .chooseUnderReplicatedBlocks(blocksToProcess);
     } finally {
       namesystem.writeUnlock();
     }
+    // 计算可进行副本删除的任务，放入正在删除数据块缓冲区BlockManager#invalidateBlocks，最后返回任务数。
     return computeReplicationWorkForBlocks(blocksToReplicate);
   }
 
@@ -1460,6 +1470,7 @@ public class BlockManager {
           // Move the block-replication into a "pending" state.
           // The reason we use 'pending' is so we can retry
           // replications that fail after an appropriate amount of time.
+          // 将正在复制的block加入到pendingReplications中
           pendingReplications.increment(block,
               DatanodeStorageInfo.toDatanodeDescriptors(targets));
           if(blockLog.isDebugEnabled()) {
@@ -1677,12 +1688,15 @@ public class BlockManager {
    * and put them back into the neededReplication queue
    */
   private void processPendingReplications() {
+    // 获取全部的复制超时数据块，并清空复制超时数据块缓冲区
     Block[] timedOutItems = pendingReplications.getTimedOutBlocks();
     if (timedOutItems != null) {
       namesystem.writeLock();
       try {
         for (int i = 0; i < timedOutItems.length; i++) {
+          // 计算各状态的副本数
           NumberReplicas num = countNodes(timedOutItems[i]);
+          // 如果过期的待复制数据块仍然需要被复制，则将其添加回需要复制数据块缓冲区neededReplications。等待BlockManager#ReplicationMonitor线程在下一批次计算这些副本复制任务。
           if (isNeededReplication(timedOutItems[i], getReplication(timedOutItems[i]),
                                  num.liveReplicas())) {
             neededReplications.add(timedOutItems[i],
@@ -3438,6 +3452,7 @@ public class BlockManager {
    * or if it does not have enough racks.
    */
   private boolean isNeededReplication(Block b, int expected, int current) {
+    // 如果当前的存活副本数小于副本系数，或数据块没有足够的机架分布，就需要继续复制
     return current < expected || !blockHasEnoughRacks(b);
   }
   
@@ -3522,9 +3537,11 @@ public class BlockManager {
     public void run() {
       while (namesystem.isRunning()) {
         try {
-          // Process replication work only when active NN is out of safe mode.
+          // Process replication work only when active NN is out of safe mode. 如果开启了HA，则当且仅当当前namenode处于active状态，且safemode关闭的状态下，isPopulatingReplQueues方法才会返回true
           if (namesystem.isPopulatingReplQueues()) {
+            // 计算副本复制与副本删除任务
             computeDatanodeWork();
+            // 处理过期的副本复制任务
             processPendingReplications();
           }
           Thread.sleep(replicationRecheckInterval);
@@ -3564,15 +3581,19 @@ public class BlockManager {
       return 0;
     }
 
+    // 流控相关， 首先获取集群存活的datanode总数
     final int numlive = heartbeatManager.getLiveDatanodeCount();
+    // blocksReplWorkMultiplier默认值为2, blocksToProcess为每批次进行副本复制的数据块总数
     final int blocksToProcess = numlive
         * this.blocksReplWorkMultiplier;
+    // blocksInvalidateWorkPct默认值0.32， nodesToProcess为每批次进行副本删除涉及的datanode总数
     final int nodesToProcess = (int) Math.ceil(numlive
         * this.blocksInvalidateWorkPct);
 
+    // 计算可进行副本复制的任务，最后返回任务数
     int workFound = this.computeReplicationWork(blocksToProcess);
 
-    // Update counters
+    // Update counters // 更新状态等
     namesystem.writeLock();
     try {
       this.updateState();
@@ -3580,7 +3601,9 @@ public class BlockManager {
     } finally {
       namesystem.writeUnlock();
     }
+    // 计算可进行副本删除的任务，最后返回任务数
     workFound += this.computeInvalidateWork(nodesToProcess);
+    // 返回总任务数
     return workFound;
   }
 

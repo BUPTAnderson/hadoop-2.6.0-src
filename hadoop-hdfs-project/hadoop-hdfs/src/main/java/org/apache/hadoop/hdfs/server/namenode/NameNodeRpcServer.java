@@ -208,25 +208,35 @@ class NameNodeRpcServer implements NamenodeProtocols {
     this.nn = nn;
     this.namesystem = nn.getNamesystem();
     this.metrics = NameNode.getNameNodeMetrics();
-    
+
+    // The number of server threads for the namenode. 默认为10
+    // 用来处理客户端的远程过程调用及集群守护进程的调用的线程池大小，默认值为10。设置该值的一般原则是将其设置为集群datanode大小的自然对数乘以20，即20ln(number of datanodes)，N为集群大小。
     int handlerCount = 
       conf.getInt(DFS_NAMENODE_HANDLER_COUNT_KEY, 
                   DFS_NAMENODE_HANDLER_COUNT_DEFAULT);
 
+    // 设置RPC类的序列化引擎为protobuf
     RPC.setProtocolEngine(conf, ClientNamenodeProtocolPB.class,
         ProtobufRpcEngine.class);
 
+    // 针对实现的不同协议构造对应的BlockingService对象， 这里this实现了NamenodeProtocols, 而NamenodeProtocols继承了所有namenode需要实现的借口
+    // clientProtocolServerTranslator用来处理客户端发来的rpc请求，用于适配ClientNamenodeProtocolPB到ClientProtocol接口的转换
     ClientNamenodeProtocolServerSideTranslatorPB 
        clientProtocolServerTranslator = 
          new ClientNamenodeProtocolServerSideTranslatorPB(this);
+    // ClientNamenodeProtocol是编译ClientNamenodeProtocol.proto文件后生成的类，clientProtocolServerTranslator实现了ClientNamenodeProtocol.BlockingInterface接口
+      // 该BlockingService对象用于将Server提取出的请求转到clientProtocolServerTranslator对象
      BlockingService clientNNPbService = ClientNamenodeProtocol.
          newReflectiveBlockingService(clientProtocolServerTranslator);
-    
+
+    // dnProtoPbTranslator用来处理datanode发送到namenode的rpc请求
     DatanodeProtocolServerSideTranslatorPB dnProtoPbTranslator = 
         new DatanodeProtocolServerSideTranslatorPB(this);
+    // DatanodeProtocolService是编译DatanodeProtocol.proto文件后生成的类
     BlockingService dnProtoPbService = DatanodeProtocolService
         .newReflectiveBlockingService(dnProtoPbTranslator);
 
+    // namenodeProtocolXlator用来处理secondaryNamenode发送来的rpc请求，在2.x中使用的是journalnode实现的HA，没有用到该协议
     NamenodeProtocolServerSideTranslatorPB namenodeProtocolXlator = 
         new NamenodeProtocolServerSideTranslatorPB(this);
     BlockingService NNPbService = NamenodeProtocolService
@@ -281,6 +291,8 @@ class NameNodeRpcServer implements NamenodeProtocols {
       int serviceHandlerCount =
         conf.getInt(DFS_NAMENODE_SERVICE_HANDLER_COUNT_KEY,
                     DFS_NAMENODE_SERVICE_HANDLER_COUNT_DEFAULT);
+      // 构造一个RPC.Server对象(实际是ProtobufRpcEngine.Server, 该类是RPC.Server的子类)，该对象会监听来自bindHost端口的所有RPC请求, 最后调用的是Builder的build方法， 这里注意的是参数setInstance(clientNNPbService), 另外
+        // 调用ProtobufRpcEngine.Server的构造方法时会调用registerProtocolAndImpl方法注册org.apache.hadoop.hdfs.protocolPB.ClientNamenodeProtocolPB.class(实际是使用的该类的注解中的参数)
       this.serviceRpcServer = new RPC.Builder(conf)
           .setProtocol(
               org.apache.hadoop.hdfs.protocolPB.ClientNamenodeProtocolPB.class)
@@ -291,7 +303,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
           .setSecretManager(namesystem.getDelegationTokenSecretManager())
           .build();
 
-      // Add all the RPC protocols that the namenode implements
+      // Add all the RPC protocols that the namenode implements 注册NameNodeRPCServer实现的所有接口， 最终调用的是registerProtocolAndImpl方法
       DFSUtil.addPBProtocol(conf, HAServiceProtocolPB.class, haPbService,
           serviceRpcServer);
       DFSUtil.addPBProtocol(conf, NamenodeProtocolPB.class, NNPbService,
@@ -312,15 +324,17 @@ class NameNodeRpcServer implements NamenodeProtocols {
       DFSUtil.addPBProtocol(conf, TraceAdminProtocolPB.class,
           traceAdminService, serviceRpcServer);
 
-      // Update the address with the correct port
+      // Update the address with the correct port 更新address和端口号
       InetSocketAddress listenAddr = serviceRpcServer.getListenerAddress();
       serviceRPCAddress = new InetSocketAddress(
             serviceRpcAddr.getHostName(), listenAddr.getPort());
       nn.setRpcServiceServerAddress(conf, serviceRPCAddress);
     } else {
+      LOG.info("serviceRpcAddr is null");
       serviceRpcServer = null;
       serviceRPCAddress = null;
     }
+    // 伪分布情况下我这里rpcAddr是9000，bindHost是localhost
     InetSocketAddress rpcAddr = nn.getRpcServerAddress(conf);
     String bindHost = nn.getRpcServerBindHost(conf);
     if (bindHost == null) {
@@ -328,6 +342,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     }
     LOG.info("RPC server is binding to " + bindHost + ":" + rpcAddr.getPort());
 
+    // 构造clientRpcServer，用于响应发送到rpcAddr.getPort()端口上的所有RPC请求
     this.clientRpcServer = new RPC.Builder(conf)
         .setProtocol(
             org.apache.hadoop.hdfs.protocolPB.ClientNamenodeProtocolPB.class)
@@ -336,7 +351,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
         .setVerbose(false)
         .setSecretManager(namesystem.getDelegationTokenSecretManager()).build();
 
-    // Add all the RPC protocols that the namenode implements
+    // Add all the RPC protocols that the namenode implements 注册NameNodeRPCServer实现的所有接口
     DFSUtil.addPBProtocol(conf, HAServiceProtocolPB.class, haPbService,
         clientRpcServer);
     DFSUtil.addPBProtocol(conf, NamenodeProtocolPB.class, NNPbService,
@@ -356,7 +371,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     DFSUtil.addPBProtocol(conf, TraceAdminProtocolPB.class,
         traceAdminService, clientRpcServer);
 
-    // set service-level authorization security policy
+    // set service-level authorization security policy 安全相关
     if (serviceAuthEnabled =
           conf.getBoolean(
             CommonConfigurationKeys.HADOOP_SECURITY_AUTHORIZATION, false)) {
@@ -366,7 +381,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
       }
     }
 
-    // The rpc-server port can be ephemeral... ensure we have the correct info
+    // The rpc-server port can be ephemeral... ensure we have the correct info 更新端口号
     InetSocketAddress listenAddr = clientRpcServer.getListenerAddress();
       clientRpcAddress = new InetSocketAddress(
           rpcAddr.getHostName(), listenAddr.getPort());
@@ -376,7 +391,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
         DFSConfigKeys.DFS_NAMENODE_MIN_SUPPORTED_DATANODE_VERSION_KEY,
         DFSConfigKeys.DFS_NAMENODE_MIN_SUPPORTED_DATANODE_VERSION_DEFAULT);
 
-    // Set terse exception whose stack trace won't be logged
+    // Set terse exception whose stack trace won't be logged 配置异常处理机制
     this.clientRpcServer.addTerseExceptions(SafeModeException.class,
         FileNotFoundException.class,
         HadoopIllegalArgumentException.class,
@@ -414,7 +429,9 @@ class NameNodeRpcServer implements NamenodeProtocols {
    * Start client and service RPC servers.
    */
   void start() {
+    // 直接调用的父类ipc.Server的start方法
     clientRpcServer.start();
+    // 如果serviceRpcServer不为null的话， 把serviceRpcServer也启动起来，默认情况下serviceRpcServer是null
     if (serviceRpcServer != null) {
       serviceRpcServer.start();      
     }

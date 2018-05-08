@@ -652,6 +652,7 @@ public class StringUtils {
         LOG.warn("failed to register any UNIX signal loggers: ", t);
       }
     }
+    // 当namenode停止时打印的日志信息
     ShutdownHookManager.get().addShutdownHook(
       new Runnable() {
         @Override

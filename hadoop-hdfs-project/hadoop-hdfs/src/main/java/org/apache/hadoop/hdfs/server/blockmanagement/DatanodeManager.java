@@ -297,6 +297,7 @@ public class DatanodeManager {
   }
   
   void activate(final Configuration conf) {
+    // 构造DecommissionManager对象，然后启动DecommissionManager的Monitor， DecommissionManager管理节点的下线操作
     final DecommissionManager dm = new DecommissionManager(namesystem, blockManager);
     this.decommissionthread = new Daemon(dm.new Monitor(
         conf.getInt(DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_INTERVAL_KEY, 
@@ -305,6 +306,7 @@ public class DatanodeManager {
                     DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_NODES_PER_INTERVAL_DEFAULT)));
     decommissionthread.start();
 
+    // 激活HeartbeatManager， 实际是启动该类内部的一个Monitor线程
     heartbeatManager.activate(conf);
   }
 

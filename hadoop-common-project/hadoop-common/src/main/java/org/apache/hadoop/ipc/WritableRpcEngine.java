@@ -242,6 +242,7 @@ public class WritableRpcEngine implements RpcEngine {
       ObjectWritable value;
       try {
         value = (ObjectWritable)
+          // 将请求信息封装成Invocation(Writable的子类)对象， 调用client.call方法发送请求
           client.call(RPC.RpcKind.RPC_WRITABLE, new Invocation(method, args),
             remoteId, fallbackToSimpleAuth);
       } finally {
