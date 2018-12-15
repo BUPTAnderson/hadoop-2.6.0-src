@@ -139,16 +139,16 @@ public class INodesInPath {
     Preconditions.checkArgument(startingDir.compareTo(components[0]) == 0);
 
     INode curNode = startingDir;
-    final INodesInPath existing = new INodesInPath(components, numOfINodes);
+    final INodesInPath existing = new INodesInPath(components, numOfINodes); // existing可以看作是包含了components全路径上对应的每个INode节点
     int count = 0;
     int index = numOfINodes - components.length;
     if (index > 0) {
       index = 0;
     }
     while (count < components.length && curNode != null) {
-      final boolean lastComp = (count == components.length - 1);      
+      final boolean lastComp = (count == components.length - 1); // 是不是components最后一个byte数组
       if (index >= 0) {
-        existing.addNode(curNode);
+        existing.addNode(curNode); // 将解析出的INode节点加入到existing中
       }
       final boolean isRef = curNode.isReference();
       final boolean isDir = curNode.isDirectory();
@@ -201,12 +201,12 @@ public class INodesInPath {
         }
         throw new UnresolvedPathException(path, preceding, remainder, target);
       }
-      if (lastComp || !isDir) {
+      if (lastComp || !isDir) { // 知道解析到最后一个byte数组或者解析的当前节点不是Dir为止
         break;
       }
-      final byte[] childName = components[count + 1];
+      final byte[] childName = components[count + 1]; // 获取二维byte数组的下一个byte[]
       
-      // check if the next byte[] in components is for ".snapshot"
+      // check if the next byte[] in components is for ".snapshot" 检查下一个byte[]是不是.snapshot文件
       if (isDotSnapshotDir(childName) && isDir && dir.isSnapshottable()) {
         // skip the ".snapshot" in components
         count++;
@@ -233,7 +233,7 @@ public class INodesInPath {
         }
       } else {
         // normal case, and also for resolving file/dir under snapshot root
-        curNode = dir.getChild(childName, existing.getPathSnapshotId());
+        curNode = dir.getChild(childName, existing.getPathSnapshotId()); // 从dir的children节点中获取childName对应的节点INode(INodeFile/INodeDirectory)
       }
       count++;
       index++;
@@ -241,8 +241,10 @@ public class INodesInPath {
     return existing;
   }
 
+  // 这里比如创建/test/mkdir 目录，这两级目录都不存在，则 path = {"".getBytes(), "test".getBytes(), "mkdir".getBytes()}
   private final byte[][] path;
   /**
+   * 如上创建/test/mkdir 目录，这两级目录都不存在， 则这里inodes长度为1， INode[0] = INodeDirectory(""), 没有test，mkdir表示这两级目录还未创建
    * Array with the specified number of INodes resolved for a given path.
    */
   private INode[] inodes;
@@ -272,7 +274,7 @@ public class INodesInPath {
    * or {@link Snapshot#CURRENT_STATE_ID} if no snapshot is found.
    */
   private int snapshotId = Snapshot.CURRENT_STATE_ID; 
-
+  // number是path数组的长度
   private INodesInPath(byte[][] path, int number) {
     this.path = path;
     assert (number >= 0);

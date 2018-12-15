@@ -54,12 +54,15 @@ abstract public class HAState {
    */
   protected final void setStateInternal(final HAContext context, final HAState s)
       throws ServiceFailedException {
-    prepareToExitState(context);
-    s.prepareToEnterState(context);
+    prepareToExitState(context); // standby namenode重构了这个方法，会取消standby namenode上正在执行的检查点(checkpoint)操作,需要注意的是，检查点操作只在standby namenode上进行
+    s.prepareToEnterState(context); // 该方法是一个空方法
     context.writeLock();
     try {
+      // 调用exitState方法
       exitState(context);
+      // 将NameNodeHAContext中保存的Namenode状态设置为指定状态
       context.setState(s);
+      // 调用enterState，启动指定状态的所有服务
       s.enterState(context);
     } finally {
       context.writeUnlock();

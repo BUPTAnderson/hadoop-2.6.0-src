@@ -83,7 +83,7 @@ public class StandbyCheckpointer {
     this.namesystem = ns;
     this.conf = conf;
     this.checkpointConf = new CheckpointConf(conf); 
-    this.thread = new CheckpointerThread();
+    this.thread = new CheckpointerThread(); // 该线程定期检查是否进行checkpoint操作
     this.uploadThreadFactory = new ThreadFactoryBuilder().setDaemon(true)
         .setNameFormat("TransferFsImageUpload-%d").build();
 
@@ -129,7 +129,7 @@ public class StandbyCheckpointer {
     LOG.info("Starting standby checkpoint thread...\n" +
         "Checkpointing active NN at " + activeNNAddress + "\n" +
         "Serving checkpoints at " + myNNAddress);
-    thread.start();
+    thread.start(); // 启动检查线程
   }
   
   public void stop() throws IOException {
@@ -153,15 +153,16 @@ public class StandbyCheckpointer {
     final long txid;
     final NameNodeFile imageType;
     
-    namesystem.longReadLockInterruptibly();
+    namesystem.longReadLockInterruptibly(); // 加锁
     try {
       assert namesystem.getEditLog().isOpenForRead() :
         "Standby Checkpointer should only attempt a checkpoint when " +
         "NN is in standby mode, but the edit logs are in an unexpected state";
-      
+      // 获取当前standby namenode上保存的最新的fsimage对象
       FSImage img = namesystem.getFSImage();
-      
+      // 获取fsimage中保存的txid，也就是上次进行检查点操作时保存的txid
       long prevCheckpointTxId = img.getStorage().getMostRecentCheckpointTxId();
+      // 获取当前命名空间的最新的txid，也就是收到的editlog的最新的txid
       long thisCheckpointTxId = img.getLastAppliedOrWrittenTxId();
       assert thisCheckpointTxId >= prevCheckpointTxId;
       if (thisCheckpointTxId == prevCheckpointTxId) {
@@ -175,10 +176,13 @@ public class StandbyCheckpointer {
           && !namesystem.getFSImage().hasRollbackFSImage()) {
         // if we will do rolling upgrade but have not created the rollback image
         // yet, name this checkpoint as fsimage_rollback
+        // 如果当前NameNode正在执行升级操作，则创建fsimage_rollback文件
         imageType = NameNodeFile.IMAGE_ROLLBACK;
       } else {
+        // 正常情况下，创建fsimage文件
         imageType = NameNodeFile.IMAGE;
       }
+      // 调用saveNamespace方法将当前命名空间保存到新的文件中
       img.saveNamespace(namesystem, imageType, canceler);
       txid = img.getStorage().getMostRecentCheckpointTxId();
       assert txid == thisCheckpointTxId : "expected to save checkpoint at txid=" +
@@ -195,7 +199,7 @@ public class StandbyCheckpointer {
     
     // Upload the saved checkpoint back to the active
     // Do this in a separate thread to avoid blocking transition to active
-    // See HDFS-4816
+    // See HDFS-4816 构造一个线程，通过http将fsimage上传到active namenode中
     ExecutorService executor =
         Executors.newSingleThreadExecutor(uploadThreadFactory);
     Future<Void> upload = executor.submit(new Callable<Void>() {
@@ -292,12 +296,12 @@ public class StandbyCheckpointer {
     }
 
     private void doWork() {
-      final long checkPeriod = 1000 * checkpointConf.getCheckPeriod();
+      final long checkPeriod = 1000 * checkpointConf.getCheckPeriod(); // getCheckPeriod方法默认返回60
       // Reset checkpoint time so that we don't always checkpoint
       // on startup.
       lastCheckpointTime = monotonicNow();
       while (shouldRun) {
-        boolean needRollbackCheckpoint = namesystem.isNeedRollbackFsImage();
+        boolean needRollbackCheckpoint = namesystem.isNeedRollbackFsImage(); // 用户可以通过hdfs dfsadmin-rollingUpgrade相关命令设置FSNamesystem.needRollbackFsImage为true
         if (!needRollbackCheckpoint) {
           try {
             Thread.sleep(checkPeriod);
@@ -314,19 +318,21 @@ public class StandbyCheckpointer {
           }
           
           final long now = monotonicNow();
+          // 获得最后一次往JournalNode写入的txid和最近一次做检查点的txid的差值
           final long uncheckpointed = countUncheckpointedTxns();
+          // 计算当前时间和上一次检查点操作时间的间隔
           final long secsSinceLast = (now - lastCheckpointTime) / 1000;
           
           boolean needCheckpoint = needRollbackCheckpoint;
           if (needCheckpoint) {
             LOG.info("Triggering a rollback fsimage for rolling upgrade.");
-          } else if (uncheckpointed >= checkpointConf.getTxnCount()) {
+          } else if (uncheckpointed >= checkpointConf.getTxnCount()) { // 当最后一次往JournalNode写入的txid和最近的一次做检查点的txid的差值大于或等于${dfs.namenode.checkpoint.txns}默认1000000时，满足合并条件
             LOG.info("Triggering checkpoint because there have been " + 
                 uncheckpointed + " txns since the last checkpoint, which " +
                 "exceeds the configured threshold " +
                 checkpointConf.getTxnCount());
             needCheckpoint = true;
-          } else if (secsSinceLast >= checkpointConf.getPeriod()) {
+          } else if (secsSinceLast >= checkpointConf.getPeriod()) { // getPeriod默认返回3600，即判断是否超过了1个小时，则满足合并条件
             LOG.info("Triggering checkpoint because it has been " +
                 secsSinceLast + " seconds since the last checkpoint, which " +
                 "exceeds the configured interval " + checkpointConf.getPeriod());
@@ -342,9 +348,9 @@ public class StandbyCheckpointer {
             assert canceler == null;
             canceler = new Canceler();
           }
-          
+          // 满足检查点执行条件，则调用doCheckpoint方法执行检查点操作
           if (needCheckpoint) {
-            doCheckpoint();
+            doCheckpoint(); // 执行检查点操作
             // reset needRollbackCheckpoint to false only when we finish a ckpt
             // for rollback image
             if (needRollbackCheckpoint

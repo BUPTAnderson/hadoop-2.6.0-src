@@ -38,6 +38,10 @@ import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.SecureIOUtils;
 import org.apache.hadoop.util.PureJavaCrc32;
 
+/**
+ * 按照partition存放磁盘数据meta信息， 一次spill生成一个对象。本质是一个buffer，数据按照顺序存到buffer中。
+ * 在indexCache不足时会写到磁盘上
+ */
 @InterfaceAudience.LimitedPrivate({"MapReduce"})
 @InterfaceStability.Unstable
 public class SpillRecord {
@@ -110,6 +114,7 @@ public class SpillRecord {
   }
 
   /**
+   * IndexRecord 为SpillRecord中存的元素，表示一个partition的索引信息
    * Set spill offsets for given partition.
    */
   public void putIndex(IndexRecord rec, int partition) {

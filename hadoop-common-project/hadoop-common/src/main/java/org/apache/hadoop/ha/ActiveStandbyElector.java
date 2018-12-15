@@ -401,6 +401,7 @@ public class ActiveStandbyElector implements StatCallback, StringCallback {
 
   /**
    * interface implementation of Zookeeper callback for create
+   * zk会调用该方法
    */
   @Override
   public synchronized void processResult(int rc, String path, Object ctx,

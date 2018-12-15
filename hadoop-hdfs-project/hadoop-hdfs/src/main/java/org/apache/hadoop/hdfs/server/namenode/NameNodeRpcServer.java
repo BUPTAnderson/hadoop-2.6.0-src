@@ -219,7 +219,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     RPC.setProtocolEngine(conf, ClientNamenodeProtocolPB.class,
         ProtobufRpcEngine.class);
 
-    // 针对实现的不同协议构造对应的BlockingService对象， 这里this实现了NamenodeProtocols, 而NamenodeProtocols继承了所有namenode需要实现的借口
+    // 针对实现的不同协议构造对应的BlockingService对象， 这里this实现了NamenodeProtocols, 而NamenodeProtocols继承了所有namenode需要实现的接口
     // clientProtocolServerTranslator用来处理客户端发来的rpc请求，用于适配ClientNamenodeProtocolPB到ClientProtocol接口的转换
     ClientNamenodeProtocolServerSideTranslatorPB 
        clientProtocolServerTranslator = 
@@ -278,7 +278,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
         .newReflectiveBlockingService(traceAdminXlator);
     
     WritableRpcEngine.ensureInitialized();
-
+    // 配置项${dfs.namenode.servicerpc-address.xxx.xxx} 用于HDFS服务通信的RPC地址，所有的backupnode,datanode和其它服务都应该连接到这个地址。如果该属性未设置，则使用dfs.namenode.rpc-address属性的值。线上通常配置8022端口， 通常datanode会发送到该端口
     InetSocketAddress serviceRpcAddr = nn.getServiceRpcServerAddress(conf);
     if (serviceRpcAddr != null) {
       String bindHost = nn.getServiceRpcServerBindHost(conf);
@@ -287,12 +287,12 @@ class NameNodeRpcServer implements NamenodeProtocols {
       }
       LOG.info("Service RPC server is binding to " + bindHost + ":" +
           serviceRpcAddr.getPort());
-
+      // 配置dfs.namenode.service.handler.count对应的线程数
       int serviceHandlerCount =
         conf.getInt(DFS_NAMENODE_SERVICE_HANDLER_COUNT_KEY,
                     DFS_NAMENODE_SERVICE_HANDLER_COUNT_DEFAULT);
       // 构造一个RPC.Server对象(实际是ProtobufRpcEngine.Server, 该类是RPC.Server的子类)，该对象会监听来自bindHost端口的所有RPC请求, 最后调用的是Builder的build方法， 这里注意的是参数setInstance(clientNNPbService), 另外
-        // 调用ProtobufRpcEngine.Server的构造方法时会调用registerProtocolAndImpl方法注册org.apache.hadoop.hdfs.protocolPB.ClientNamenodeProtocolPB.class(实际是使用的该类的注解中的参数)
+      // 调用ProtobufRpcEngine.Server的构造方法时会调用registerProtocolAndImpl方法注册org.apache.hadoop.hdfs.protocolPB.ClientNamenodeProtocolPB.class(实际是使用的该类的注解中的参数)
       this.serviceRpcServer = new RPC.Builder(conf)
           .setProtocol(
               org.apache.hadoop.hdfs.protocolPB.ClientNamenodeProtocolPB.class)
@@ -334,7 +334,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
       serviceRpcServer = null;
       serviceRPCAddress = null;
     }
-    // 伪分布情况下我这里rpcAddr是9000，bindHost是localhost
+    // 伪分布情况下我这里rpcAddr是9000，bindHost是localhost, 线上配置dfs.namenode.rpc-address.nameserviceX.namenodeX， 通常配置8020端口
     InetSocketAddress rpcAddr = nn.getRpcServerAddress(conf);
     String bindHost = nn.getRpcServerBindHost(conf);
     if (bindHost == null) {
@@ -342,7 +342,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     }
     LOG.info("RPC server is binding to " + bindHost + ":" + rpcAddr.getPort());
 
-    // 构造clientRpcServer，用于响应发送到rpcAddr.getPort()端口上的所有RPC请求
+    // 构造clientRpcServer，用于响应发送到rpcAddr.getPort()端口上的所有RPC请求, 线上配置8020端口, 处理所有客户端请求的RPC地址，若在HA场景中，可能有多个namenode，就把名称ID添加到进来。该属性的格式为nn-host1:rpc-port。
     this.clientRpcServer = new RPC.Builder(conf)
         .setProtocol(
             org.apache.hadoop.hdfs.protocolPB.ClientNamenodeProtocolPB.class)
@@ -550,7 +550,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     namesystem.cancelDelegationToken(token);
   }
   
-  @Override // ClientProtocol
+  @Override // ClientProtocol, 获取src对应的文件的一批block信息，默认时10个block
   public LocatedBlocks getBlockLocations(String src, 
                                           long offset, 
                                           long length) 
@@ -565,7 +565,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     return namesystem.getServerDefaults();
   }
 
-  @Override // ClientProtocol
+  @Override // ClientProtocol 创建文件
   public HdfsFileStatus create(String src, FsPermission masked,
       String clientName, EnumSetWritable<CreateFlag> flag,
       boolean createParent, short replication, long blockSize, 
@@ -580,6 +580,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
       throw new IOException("create: Pathname too long.  Limit "
           + MAX_PATH_LENGTH + " characters, " + MAX_PATH_DEPTH + " levels.");
     }
+    // 调用startFile方法
     HdfsFileStatus fileStatus = namesystem.startFile(src, new PermissionStatus(
         getRemoteUser().getShortUserName(), null, masked),
         clientName, clientMachine, flag.get(), createParent, replication,
@@ -589,7 +590,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     return fileStatus;
   }
 
-  @Override // ClientProtocol
+  @Override // ClientProtocol 追加写文件
   public LocatedBlock append(String src, String clientName) 
       throws IOException {
     String clientMachine = getClientMachine();
@@ -597,7 +598,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
       stateChangeLog.debug("*DIR* NameNode.append: file "
           +src+" for "+clientName+" at "+clientMachine);
     }
-    LocatedBlock info = namesystem.appendFile(src, clientName, clientMachine);
+    LocatedBlock info = namesystem.appendFile(src, clientName, clientMachine); // 调用namesystem.appendFile方法
     metrics.incrFilesAppended();
     return info;
   }
@@ -637,7 +638,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     namesystem.setOwner(src, username, groupname);
   }
   
-  @Override
+  @Override // 请求分配新的数据块
   public LocatedBlock addBlock(String src, String clientName,
       ExtendedBlock previous, DatanodeInfo[] excludedNodes, long fileId,
       String[] favoredNodes)
@@ -655,6 +656,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     }
     List<String> favoredNodesList = (favoredNodes == null) ? null
         : Arrays.asList(favoredNodes);
+    // 调用getAdditionalBlock方法
     LocatedBlock locatedBlock = namesystem.getAdditionalBlock(src, fileId,
         clientName, previous, excludedNodesSet, favoredNodesList);
     if (locatedBlock != null)
@@ -706,7 +708,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     }
   }
 
-  @Override // ClientProtocol
+  @Override // ClientProtocol 关闭文件
   public boolean complete(String src, String clientName,
                           ExtendedBlock last,  long fileId)
       throws IOException {
@@ -714,6 +716,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
       stateChangeLog.debug("*DIR* NameNode.complete: "
           + src + " fileId=" + fileId +" for " + clientName);
     }
+    // 调用completeFile
     return namesystem.completeFile(src, clientName, last, fileId);
   }
 
@@ -742,7 +745,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     namesystem.updatePipeline(clientName, oldBlock, newBlock, newNodes, newStorageIDs);
   }
   
-  @Override // DatanodeProtocol
+  @Override // DatanodeProtocol 汇报完成RECOVERY的block
   public void commitBlockSynchronization(ExtendedBlock block,
       long newgenerationstamp, long newlength,
       boolean closeFile, boolean deleteblock, DatanodeID[] newtargets,
@@ -823,6 +826,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     if(stateChangeLog.isDebugEnabled()) {
       stateChangeLog.debug("*DIR* NameNode.mkdirs: " + src);
     }
+    // 检查目标目录的字符串长度（不超过8000）和路径深度（不超过1000）
     if (!checkPathLength(src)) {
       throw new IOException("mkdirs: Pathname too long.  Limit " 
                             + MAX_PATH_LENGTH + " characters, " + MAX_PATH_DEPTH + " levels.");
@@ -894,7 +898,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     return reports;
   }
 
-  @Override // ClientProtocol
+  @Override // ClientProtocol 安全模式管理
   public boolean setSafeMode(SafeModeAction action, boolean isChecked)
       throws IOException {
     OperationCategory opCategory = OperationCategory.UNCHECKED;
@@ -906,6 +910,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
       }
     }
     namesystem.checkOperation(opCategory);
+    // 调用setSafeMode
     return namesystem.setSafeMode(action);
   }
 
@@ -927,7 +932,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
 
   @Override // ClientProtocol
   public void refreshNodes() throws IOException {
-    namesystem.refreshNodes();
+    namesystem.refreshNodes(); // 响应客户端发送的 dfsadmi -refreshNodes命令
   }
 
   @Override // NamenodeProtocol
@@ -1078,7 +1083,8 @@ class NameNodeRpcServer implements NamenodeProtocols {
   @Override // DatanodeProtocol
   public DatanodeRegistration registerDatanode(DatanodeRegistration nodeReg)
       throws IOException {
-    verifySoftwareVersion(nodeReg);
+    verifySoftwareVersion(nodeReg); // 检查版本号是否一致
+    // 处理注册请求
     namesystem.registerDatanode(nodeReg);
     return nodeReg;
   }
@@ -1104,7 +1110,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
     }
     final BlockManager bm = namesystem.getBlockManager(); 
     boolean noStaleStorages = false;
-    for(StorageBlockReport r : reports) {
+    for(StorageBlockReport r : reports) { // 一个StorageBlockReport对应一个存储目录的block信息
       final BlockListAsLongs blocks = new BlockListAsLongs(r.getBlocks());
       //
       // BlockManager.processReport accumulates information of prior calls
@@ -1147,7 +1153,9 @@ class NameNodeRpcServer implements NamenodeProtocols {
           +"from "+nodeReg+" "+receivedAndDeletedBlocks.length
           +" blocks.");
     }
+    // 最终遍历StorageReceivedDeletedBlocks数组，针对每个StorageReceivedDeletedBlocks，
     for(StorageReceivedDeletedBlocks r : receivedAndDeletedBlocks) {
+      // 调用FSNamesystem的processIncrementalBlockReport()方法处理datanode发送过来的增量块汇报
       namesystem.processIncrementalBlockReport(nodeReg, r);
     }
   }
@@ -1256,10 +1264,12 @@ class NameNodeRpcServer implements NamenodeProtocols {
     nn.monitorHealth();
   }
   
-  @Override // HAServiceProtocol
+  @Override // HAServiceProtocol 将namenode设置为active
   public synchronized void transitionToActive(StateChangeRequestInfo req) 
       throws ServiceFailedException, AccessControlException {
+    // 检查这次状态切换是否合法
     nn.checkHaStateChange(req);
+    // 调用transitionToActive， 切换到active状态
     nn.transitionToActive();
   }
   
@@ -1318,7 +1328,7 @@ class NameNodeRpcServer implements NamenodeProtocols {
 
   private static String getClientMachine() {
     String clientMachine = NamenodeWebHdfsMethods.getRemoteAddress();
-    if (clientMachine == null) { //not a web client
+    if (clientMachine == null) { //not a web client 如果为null获取客户端的ip
       clientMachine = Server.getRemoteAddress();
     }
     if (clientMachine == null) { //not a RPC client

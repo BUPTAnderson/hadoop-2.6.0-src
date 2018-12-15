@@ -30,8 +30,8 @@ import org.apache.hadoop.hdfs.server.namenode.INode.BlocksMapUpdateInfo;
  */
 @InterfaceAudience.Private
 public class FileUnderConstructionFeature implements INode.Feature {
-  private String clientName; // lease holder
-  private final String clientMachine;
+  private String clientName; // lease holder 发起文件写操作的客户端名称，这个属性也用于租约管理功能。
+  private final String clientMachine; // 客户端所在主机
 
   public FileUnderConstructionFeature(final String clientName, final String clientMachine) {
     this.clientName = clientName;
@@ -51,6 +51,7 @@ public class FileUnderConstructionFeature implements INode.Feature {
   }
 
   /**
+   * 更新最后一个正在写的数据块的长度
    * Update the length for the last block
    *
    * @param lastBlockLength
@@ -69,6 +70,7 @@ public class FileUnderConstructionFeature implements INode.Feature {
   }
 
   /**
+   * 用于删除快照中文件的最后一个长度为0的数据块
    * When deleting a file in the current fs directory, and the file is contained
    * in a snapshot, we should delete the last block if it's under construction
    * and its size is 0.

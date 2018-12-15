@@ -2060,13 +2060,13 @@ public abstract class Server {
           try {
             // Make the call as the user via Subject.doAs, thus associating
             // the call with the Subject
-            if (call.connection.user == null) {
+            if (call.connection.user == null) { // 正常调用user是不为null的，执行else中的逻辑
               // 调用RPC.Server的call方法进行处理， 并返回结果
               value = call(call.rpcKind, call.connection.protocolName, call.rpcRequest, 
                            call.timestamp);
             } else {
               value = 
-                call.connection.user.doAs
+                call.connection.user.doAs // 执行doAs方法， 最终执行的是下面的call方法，实际调用的是RPC.Server的call方法
                   (new PrivilegedExceptionAction<Writable>() {
                      @Override
                      public Writable run() throws Exception {
@@ -2205,7 +2205,7 @@ public abstract class Server {
         CommonConfigurationKeys.IPC_MAXIMUM_DATA_LENGTH_DEFAULT);
     if (queueSizePerHandler != -1) {
       this.maxQueueSize = queueSizePerHandler;
-    } else {
+    } else { // 设置callQueue的大小, handlerCount * 100
       this.maxQueueSize = handlerCount * conf.getInt(
           CommonConfigurationKeys.IPC_SERVER_HANDLER_QUEUE_SIZE_KEY,
           CommonConfigurationKeys.IPC_SERVER_HANDLER_QUEUE_SIZE_DEFAULT);      
@@ -2228,7 +2228,7 @@ public abstract class Server {
     final String prefix = getQueueClassPrefix();
     // 初始化callQueue队列，Reader线程会把用户的请求封装成call对象然后放到callQueue队列中
     this.callQueue = new CallQueueManager<Call>(getQueueClass(prefix, conf),
-        maxQueueSize, prefix, conf);
+        maxQueueSize, prefix, conf); // getQueueClass方法返回java.util.concurrent.LinkedBlockingQueue
 
     this.secretManager = (SecretManager<TokenIdentifier>) secretManager;
     this.authorize = 

@@ -87,9 +87,9 @@ public class FsShell extends Configured implements Tool {
     getConf().setQuietMode(true);
     if (commandFactory == null) {
       commandFactory = new CommandFactory(getConf());
-      commandFactory.addObject(new Help(), "-help");
-      commandFactory.addObject(new Usage(), "-usage");
-      registerCommands(commandFactory);
+      commandFactory.addObject(new Help(), "-help"); // -help命令对应的执行类Help
+      commandFactory.addObject(new Usage(), "-usage"); // 注册-usage命令对应的执行类Usage
+      registerCommands(commandFactory); // 注册其它命令对应的执行类
     }
   }
 
@@ -98,7 +98,7 @@ public class FsShell extends Configured implements Tool {
     // registration.  This class should morph into a base class for
     // commands, and then this method can be abstract
     if (this.getClass().equals(FsShell.class)) {
-      factory.registerCommands(FsCommand.class);
+      factory.registerCommands(FsCommand.class); // 执行注册
     }
   }
   
@@ -270,7 +270,7 @@ public class FsShell extends Configured implements Tool {
    */
   @Override
   public int run(String argv[]) throws Exception {
-    // initialize FsShell
+    // initialize FsShell init方法会初始化commandFactory，将命令对应的执行类进行注册
     init();
 
     int exitCode = -1;
@@ -280,10 +280,11 @@ public class FsShell extends Configured implements Tool {
       String cmd = argv[0];
       Command instance = null;
       try {
-        instance = commandFactory.getInstance(cmd);
+        instance = commandFactory.getInstance(cmd); // 由于上面的init方法已经初始化完了commandFactory，这里比如cmd是ls，则返回Ls类的对象
         if (instance == null) {
           throw new UnknownCommandException();
         }
+        //进入run方法
         exitCode = instance.run(Arrays.copyOfRange(argv, 1, argv.length));
       } catch (IllegalArgumentException e) {
         displayError(cmd, e.getLocalizedMessage());

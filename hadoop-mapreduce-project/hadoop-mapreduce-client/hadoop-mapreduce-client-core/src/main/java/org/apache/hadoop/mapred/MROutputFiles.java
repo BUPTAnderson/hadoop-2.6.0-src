@@ -39,6 +39,7 @@ import org.apache.hadoop.mapreduce.MRJobConfig;
 @InterfaceStability.Unstable
 public class MROutputFiles extends MapOutputFile {
 
+  // 初始化LocalDirAllocator
   private LocalDirAllocator lDirAlloc =
     new LocalDirAllocator(MRConfig.LOCAL_DIR);
 
@@ -54,6 +55,7 @@ public class MROutputFiles extends MapOutputFile {
   @Override
   public Path getOutputFile()
       throws IOException {
+    // 获取输出文件路径
     return lDirAlloc.getLocalPathToRead(MRJobConfig.OUTPUT + Path.SEPARATOR
         + MAP_OUTPUT_FILENAME_STRING, getConf());
   }
@@ -128,6 +130,7 @@ public class MROutputFiles extends MapOutputFile {
   @Override
   public Path getSpillFile(int spillNumber)
       throws IOException {
+    // 返回配置项${mapreduce.cluster.local.dir}配置的多个本地目录中的一个下的output/spill(spillNumber).out文件，比如output/spill0.out
     return lDirAlloc.getLocalPathToRead(MRJobConfig.OUTPUT + "/spill"
         + spillNumber + ".out", getConf());
   }
@@ -143,6 +146,7 @@ public class MROutputFiles extends MapOutputFile {
   @Override
   public Path getSpillFileForWrite(int spillNumber, long size)
       throws IOException {
+    // 获取溢写文件路径
     return lDirAlloc.getLocalPathForWrite(MRJobConfig.OUTPUT + "/spill"
         + spillNumber + ".out", size, getConf());
   }

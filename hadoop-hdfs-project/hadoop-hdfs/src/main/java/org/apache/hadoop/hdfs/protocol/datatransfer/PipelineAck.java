@@ -134,11 +134,11 @@ public class PipelineAck {
    */
   public Status getOOBStatus() {
     // Normal data transfer acks will have a valid sequence number, so
-    // this will return right away in most cases.
+    // this will return right away in most cases. // seqno不等于UNKOWN_SEQNO的话，就一定不是OOB状态
     if (getSeqno() != UNKOWN_SEQNO) {
       return null;
     }
-    for (Status reply : proto.getStatusList()) {
+    for (Status reply : proto.getStatusList()) { // 有任何一个下游节点是OOB，则认为下游管道是OOB状态（当然，该机制保证从第一个OOB节点开始，在每个节点查看ack时，都能发现下游有节点OOB）
       // The following check is valid because protobuf guarantees to
       // preserve the ordering of enum elements.
       if (reply.getNumber() >= OOB_START && reply.getNumber() <= OOB_END) {

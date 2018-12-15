@@ -268,20 +268,20 @@ public class JournalSet implements JournalManager {
       long fromTxId, boolean inProgressOk) throws IOException {
     final PriorityQueue<EditLogInputStream> allStreams = 
         new PriorityQueue<EditLogInputStream>(64,
-            EDIT_LOG_INPUT_STREAM_COMPARATOR);
+            EDIT_LOG_INPUT_STREAM_COMPARATOR); // 这里使用了优先队列进行排序，传入的比较器是先比较起始txid大小，然后比较结束的txid大小，这里是按照从小到达的顺序排列的
     for (JournalAndStream jas : journals) {
       if (jas.isDisabled()) {
         LOG.info("Skipping jas " + jas + " since it's disabled");
         continue;
       }
       try {
-        jas.getManager().selectInputStreams(allStreams, fromTxId, inProgressOk);
+        jas.getManager().selectInputStreams(allStreams, fromTxId, inProgressOk); // 将符合的edit文件创建输入流，加入allStreams中，所有edits文件中起始txid大于等于fromTxId的edits文件符合要求，inProgressOk是false的话不会加入inprogress文件
       } catch (IOException ioe) {
         LOG.warn("Unable to determine input streams from " + jas.getManager() +
             ". Skipping.", ioe);
       }
     }
-    chainAndMakeRedundantStreams(streams, allStreams, fromTxId);
+    chainAndMakeRedundantStreams(streams, allStreams, fromTxId); // 解析allStreams，按照规则将符合条件的edit log输入流加入到stream中
   }
   
   public static void chainAndMakeRedundantStreams(
@@ -388,8 +388,10 @@ public class JournalSet implements JournalManager {
       JournalClosure closure, String status) throws IOException{
 
     List<JournalAndStream> badJAS = Lists.newLinkedList();
+    // 遍历journals字段中保存的所有JournalAndStream对象
     for (JournalAndStream jas : journals) {
       try {
+        // 在闭包对象上调用apply方法将请求转到jars上
         closure.apply(jas);
       } catch (Throwable t) {
         if (jas.isRequired()) {
@@ -449,6 +451,7 @@ public class JournalSet implements JournalManager {
         @Override
         public void apply(JournalAndStream jas) throws IOException {
           if (jas.isActive()) {
+            // 提取出JournalAndStream对象中封装的EditLogOutputStream对象，并在EditLogOutputStream对象上调用write()方法
             jas.getCurrentStream().write(op);
           }
         }
@@ -611,6 +614,7 @@ public class JournalSet implements JournalManager {
     mapJournalsAndReportErrors(new JournalClosure() {
       @Override
       public void apply(JournalAndStream jas) throws IOException {
+        // 调用JournalManager的purgeLogsOlderThan方法，对于伪分布式模式，JournalManager是FileJournalManager,如果配置了2个目录来存放editlog，则JournalManager有两个， 对于分布式模式包括FileJournalManager和QuorumJournalManager
         jas.getManager().purgeLogsOlderThan(minTxIdToKeep);
       }
     }, "purgeLogsOlderThan " + minTxIdToKeep);

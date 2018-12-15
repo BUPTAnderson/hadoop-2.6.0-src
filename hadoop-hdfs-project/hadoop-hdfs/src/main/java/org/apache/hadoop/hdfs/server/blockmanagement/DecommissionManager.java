@@ -54,7 +54,7 @@ class DecommissionManager {
     private String firstkey = "";
 
     Monitor(int recheckIntervalInSecond, int numNodesPerCheck) {
-      this.recheckInterval = recheckIntervalInSecond * 1000L;
+      this.recheckInterval = recheckIntervalInSecond * 1000L; // 默认值30s
       this.numNodesPerCheck = numNodesPerCheck;
     }
 
@@ -67,7 +67,7 @@ class DecommissionManager {
       for(; namesystem.isRunning(); ) {
         namesystem.writeLock();
         try {
-          check();
+          check(); // 调用check方法检查节点状态
         } finally {
           namesystem.writeUnlock();
         }
@@ -83,6 +83,7 @@ class DecommissionManager {
     private void check() {
       final DatanodeManager dm = blockmanager.getDatanodeManager();
       int count = 0;
+      // 循环检查所有的Datanode
       for(Map.Entry<String, DatanodeDescriptor> entry
           : dm.getDatanodeCyclicIteration(firstkey)) {
         final DatanodeDescriptor d = entry.getValue();
@@ -90,6 +91,7 @@ class DecommissionManager {
 
         if (d.isDecommissionInProgress()) {
           try {
+            // 调用checkDecommissionState检查撤销操作是否完成
             dm.checkDecommissionState(d);
           } catch(Exception e) {
             LOG.warn("entry=" + entry, e);

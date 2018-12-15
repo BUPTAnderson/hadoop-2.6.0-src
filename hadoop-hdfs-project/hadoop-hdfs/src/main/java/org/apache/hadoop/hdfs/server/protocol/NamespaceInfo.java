@@ -48,6 +48,7 @@ public class NamespaceInfo extends StorageInfo {
 
   public NamespaceInfo(int nsID, String clusterID, String bpID,
       long cT, String buildVersion, String softwareVersion) {
+    // layoutVersion是 -60， NodeType是"NAME_NODE"
     super(HdfsConstants.NAMENODE_LAYOUT_VERSION, nsID, clusterID, cT,
         NodeType.NAME_NODE);
     blockPoolID = bpID;
@@ -57,6 +58,7 @@ public class NamespaceInfo extends StorageInfo {
 
   public NamespaceInfo(int nsID, String clusterID, String bpID, 
       long cT) {
+    // Storage.getBuildVersion()比如"703b8cbb13b6e3c2f7256777fc0e48d337c3db4e", VersionInfo.getVersion()比如"2.6.0"
     this(nsID, clusterID, bpID, cT, Storage.getBuildVersion(),
         VersionInfo.getVersion());
   }

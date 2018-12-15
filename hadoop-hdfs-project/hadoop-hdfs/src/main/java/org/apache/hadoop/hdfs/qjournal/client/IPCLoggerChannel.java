@@ -507,9 +507,10 @@ public class IPCLoggerChannel implements AsyncLogger {
     return singleThreadExecutor.submit(new Callable<Void>() {
       @Override
       public Void call() throws IOException {
+        // 封装了QJournalProtocol的startLogSegment方法，在JN对于的QJournalProtocol代理对象上调用startLogSegment()请求
         getProxy().startLogSegment(createReqInfo(), txid, layoutVersion);
         synchronized (IPCLoggerChannel.this) {
-          if (outOfSync) {
+          if (outOfSync) { // 重置outOfSync标识位
             outOfSync = false;
             QuorumJournalManager.LOG.info(
                 "Restarting previously-stopped writes to " +

@@ -36,7 +36,7 @@ public class NodeBase implements Node {
   
   protected String name; //host:port#
   protected String location; //string representation of this node's location
-  protected int level; //which level of the tree the node resides
+  protected int level; //which level of the tree the node resides， 根节点level是0，下一层是1， 下下层是2
   protected Node parent; //its parent
   
   /** Default constructor */
@@ -48,7 +48,7 @@ public class NodeBase implements Node {
    *   a concatenation of this node's location, the path seperator, and its name 
    */
   public NodeBase(String path) {
-    path = normalize(path);
+    path = normalize(path); // path必须以/开头，或者是""
     int index = path.lastIndexOf(PATH_SEPARATOR);
     if (index== -1) {
       set(ROOT, path);
@@ -168,12 +168,12 @@ public class NodeBase implements Node {
     this.level = level;
   }
   
-  public static int locationToDepth(String location) {
+  public static int locationToDepth(String location) { // 技术Node的深度，这里注意传入的是Node的location，不是path(全路径)，比如与节点datanode001， path: /rack01/datanode001, location是/rack01, name: datanode001
     String normalizedLocation = normalize(location);
     int length = normalizedLocation.length();
     int depth = 0;
     for (int i = 0; i < length; i++) {
-      if (normalizedLocation.charAt(i) == PATH_SEPARATOR) {
+      if (normalizedLocation.charAt(i) == PATH_SEPARATOR) { // 这里的计算原则是location中有一个/，depth就是多少
         depth++;
       }
     }

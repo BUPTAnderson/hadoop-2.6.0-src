@@ -67,6 +67,7 @@ public class Sender implements DataTransferProtocol {
   /** Initialize a operation. */
   private static void op(final DataOutput out, final Op op
       ) throws IOException {
+    // 写入DataTransferProtocol版本号，再写入操作码
     out.writeShort(DataTransferProtocol.DATA_TRANSFER_VERSION);
     op.write(out);
   }
@@ -77,7 +78,9 @@ public class Sender implements DataTransferProtocol {
       LOG.trace("Sending DataTransferOp " + proto.getClass().getSimpleName()
           + ": " + proto);
     }
+    // 调用op()方法写入版本号，然后写入操作码Op
     op(out, opcode);
+    // 写入序列化后的参数
     proto.writeDelimitedTo(out);
     out.flush();
   }
@@ -109,7 +112,7 @@ public class Sender implements DataTransferProtocol {
       .setSendChecksums(sendChecksum)
       .setCachingStrategy(getCachingStrategy(cachingStrategy))
       .build();
-
+    // 向DN发送去读数据请求
     send(out, Op.READ_BLOCK, proto);
   }
   
@@ -139,7 +142,7 @@ public class Sender implements DataTransferProtocol {
     OpWriteBlockProto.Builder proto = OpWriteBlockProto.newBuilder()
       .setHeader(header)
       .setStorageType(PBHelper.convertStorageType(storageType))
-      .addAllTargets(PBHelper.convert(targets, 1))
+      .addAllTargets(PBHelper.convert(targets, 1)) // 去掉targets中的第一个节点
       .addAllTargetStorageTypes(PBHelper.convertStorageTypes(targetStorageTypes, 1))
       .setStage(toProto(stage))
       .setPipelineSize(pipelineSize)

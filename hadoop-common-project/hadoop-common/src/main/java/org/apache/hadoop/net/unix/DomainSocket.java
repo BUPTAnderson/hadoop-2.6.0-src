@@ -247,8 +247,8 @@ public class DomainSocket implements Closeable {
     if (loadingFailureReason != null) {
       throw new UnsupportedOperationException(loadingFailureReason);
     }
-    int fd = connect0(path);
-    return new DomainSocket(path, fd);
+    int fd = connect0(path); // 获取文件描述符
+    return new DomainSocket(path, fd); // 构造DomainSocket
   }
 
   /**

@@ -110,7 +110,7 @@ public class NetworkTopology {
     /** Judge if this node represents a rack 
      * @return true if it has no child or its children are not InnerNodes
      */ 
-    boolean isRack() {
+    boolean isRack() { // isRack方法判断此结点是否为一个rack结点。如果子结点为空或者子结点的类型不是InnerNode，则是rack结点。
       if (children.isEmpty()) {
         return true;
       }
@@ -128,10 +128,10 @@ public class NetworkTopology {
      * @param n a node
      * @return true if this node is an ancestor of <i>n</i>
      */
-    boolean isAncestor(Node n) {
-      return getPath(this).equals(NodeBase.PATH_SEPARATOR_STR) ||
+    boolean isAncestor(Node n) { // isAncestor方法判断当前结点是否为结点n的祖先。
+      return getPath(this).equals(NodeBase.PATH_SEPARATOR_STR) || // 当前节点是根节点
         (n.getNetworkLocation()+NodeBase.PATH_SEPARATOR_STR).
-        startsWith(getPath(this)+NodeBase.PATH_SEPARATOR_STR);
+        startsWith(getPath(this)+NodeBase.PATH_SEPARATOR_STR); // 传入的节点的机架信息+"/" 是不是以 当前节点的路径+"/" 开头， 比如n path:/datacenter01/rack01/data01, 则n.getNetworkLocation() = /datacenter01/rack01， 比如getPath="datacenter01", 则返回true
     }
         
     /** Judge if this node is the parent of node <i>n</i>
@@ -139,7 +139,7 @@ public class NetworkTopology {
      * @param n a node
      * @return true if this node is the parent of <i>n</i>
      */
-    boolean isParent(Node n) {
+    boolean isParent(Node n) { // 判断当前节点是否是传入的节点的父节点， 只需判断当前节点的path与传入节点的机架信息是不是相等即可
       return n.getNetworkLocation().equals(getPath(this));
     }
         
@@ -168,7 +168,7 @@ public class NetworkTopology {
         throw new IllegalArgumentException(n.getName()+", which is located at "
                 +n.getNetworkLocation()+", is not a decendent of "
                 +getPath(this));
-      if (isParent(n)) {
+      if (isParent(n)) { // 根节点"/"， 当前节点"/default-rack", 两者不相等，当前节点不是n的父节点
         // this node is the parent of n; add n directly
         n.setParent(this);
         n.setLevel(this.level+1);
@@ -183,21 +183,21 @@ public class NetworkTopology {
         return true;
       } else {
         // find the next ancestor node
-        String parentName = getNextAncestorName(n);
+        String parentName = getNextAncestorName(n); // 返回"default-rack"
         InnerNode parentNode = null;
         for(int i=0; i<children.size(); i++) {
-          if (children.get(i).getName().equals(parentName)) {
+          if (children.get(i).getName().equals(parentName)) { // 判断children中是不是有n的父节点parentName
             parentNode = (InnerNode)children.get(i);
             break;
           }
         }
-        if (parentNode == null) {
+        if (parentNode == null) { // 没有找到n的父节点
           // create a new InnerNode
-          parentNode = createParentNode(parentName);
+          parentNode = createParentNode(parentName); // 构造n的父节点InnerNode对象，加入children中
           children.add(parentNode);
         }
         // add n to the subtree of the next ancestor node
-        if (parentNode.add(n)) {
+        if (parentNode.add(n)) { // 递归调用当前方法add，把n加入到parentNode，这时候this变成了parentNode, 即"/default-rack"节点
           numOfLeaves++;
           return true;
         } else {
@@ -219,7 +219,7 @@ public class NetworkTopology {
      * @see InnerNode#InnerNode(String, String, InnerNode, int)
      */
     protected InnerNode createParentNode(String parentName) {
-      return new InnerNode(parentName, getPath(this), this, this.getLevel()+1);
+      return new InnerNode(parentName, getPath(this), this, this.getLevel()+1); // "default-rack", "/", this, 0+1
     }
 
     /** Remove node <i>n</i> from the subtree of this node
@@ -276,7 +276,7 @@ public class NetworkTopology {
      * @return null if the node is not found or the childnode is there but
      * not an instance of {@link InnerNode}
      */
-    private Node getLoc(String loc) {
+    private Node getLoc(String loc) { // getLoc 根据一个字符串，返回代表这个字符串的Node类型的引用。
       if (loc == null || loc.length() == 0) return this;
             
       String[] path = loc.split(PATH_SEPARATOR_STR, 2);
@@ -302,7 +302,7 @@ public class NetworkTopology {
      * @param excludedNode an excluded node (can be null)
      * @return
      */
-    Node getLeaf(int leafIndex, Node excludedNode) {
+    Node getLeaf(int leafIndex, Node excludedNode) { // getLeaf方法作用是得到当前子结点去除excludedNode之外的第leftIndex个结点。
       int count=0;
       // check if the excluded node a leaf
       boolean isLeaf =
@@ -372,9 +372,9 @@ public class NetworkTopology {
   } // end of InnerNode
 
   /**
-   * the root cluster map
+   * the root cluster map。 clusterMap维护了整个网络的拓扑结构，clusterMap是根节点"/" , 有一个children维护子节点， 比如: "/default-rack"、"/rack01", 每个child又是Node节点，如果不是也是节点，child是InnerNode(Node的子类)， 该child又包含一个children队列，比如"/default-rack"是InnerNode，它的children包含datanode:"127.0.0.1:50070",是一个叶子节点，类型是DatanodeDescriptor(Node子类)
    */
-  InnerNode clusterMap;
+  InnerNode clusterMap; // 根节点lever是0， 下一层是1， 下下层是2
   /** Depth of all leaf nodes */
   private int depthOfAllLeaves = -1;
   /** rack counter */
@@ -383,7 +383,7 @@ public class NetworkTopology {
   protected ReadWriteLock netlock = new ReentrantReadWriteLock();
 
   public NetworkTopology() {
-    clusterMap = new InnerNode(InnerNode.ROOT);
+    clusterMap = new InnerNode(InnerNode.ROOT); // 初始化clusterMap
   }
 
   /** Add a leaf node
@@ -399,7 +399,7 @@ public class NetworkTopology {
       throw new IllegalArgumentException(
         "Not allow to add an inner node: "+NodeBase.getPath(node));
     }
-    int newDepth = NodeBase.locationToDepth(node.getNetworkLocation()) + 1;
+    int newDepth = NodeBase.locationToDepth(node.getNetworkLocation()) + 1; // 这里在depth的基础上加了1， 比如默认getNetworkLocation()方法返回的是"/default-rack"，locationToDepth返回的是1，所以newDepth=2
     netlock.writeLock().lock();
     try {
       if ((depthOfAllLeaves != -1) && (depthOfAllLeaves != newDepth)) {
@@ -415,14 +415,14 @@ public class NetworkTopology {
                                            + node.toString() 
                                            + " at an illegal network location");
       }
-      if (clusterMap.add(node)) {
+      if (clusterMap.add(node)) { // 调用InnerNode的add方法， 将node添加到clusterMap中，clusterMap维护了整个网络的拓扑结构
         LOG.info("Adding a new node: "+NodeBase.getPath(node));
         if (rack == null) {
           numOfRacks++;
         }
         if (!(node instanceof InnerNode)) {
           if (depthOfAllLeaves == -1) {
-            depthOfAllLeaves = node.getLevel();
+            depthOfAllLeaves = node.getLevel(); // 更新depthOfAllLeaves为2
           }
         }
       }
@@ -535,7 +535,7 @@ public class NetworkTopology {
     try {
       loc = NodeBase.normalize(loc);
       if (!NodeBase.ROOT.equals(loc))
-        loc = loc.substring(1);
+        loc = loc.substring(1); // "/dafault-rack" -> "default-rack"
       return clusterMap.getLoc(loc);
     } finally {
       netlock.readLock().unlock();
@@ -888,9 +888,11 @@ public class NetworkTopology {
     /** Sort weights for the nodes array */
     int[] weights = new int[activeLen];
     for (int i=0; i<activeLen; i++) {
+      // 获取reader和nodes[i]的距离，0：同一个节点，即本地，1：同一个机架，2：不同机架
       weights[i] = getWeight(reader, nodes[i]);
     }
     // Add weight/node pairs to a TreeMap to sort
+    // 这里借助TreeMap来对节点进行排序，TreeMap的value是List<Node>是因为可能多个dn与reader的距离是相同的
     TreeMap<Integer, List<Node>> tree = new TreeMap<Integer, List<Node>>();
     for (int i=0; i<activeLen; i++) {
       int weight = weights[i];
@@ -906,6 +908,9 @@ public class NetworkTopology {
     int idx = 0;
     for (List<Node> list: tree.values()) {
       if (list != null) {
+        // 对TreeMap中value进行shuffle，以免产生热点
+        // 默认情况下list里只有一个node，当副本数增多，
+        // 可能在同一rack上有两个副本，则此时list中就有两个node
         Collections.shuffle(list, r);
         for (Node n: list) {
           nodes[idx] = n;

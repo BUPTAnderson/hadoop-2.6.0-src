@@ -28,8 +28,8 @@ import org.apache.hadoop.classification.InterfaceStability;
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public enum Op {
-  WRITE_BLOCK((byte)80),
-  READ_BLOCK((byte)81),
+  WRITE_BLOCK((byte)80), // 写数据
+  READ_BLOCK((byte)81), // 读取数据
   READ_METADATA((byte)82),
   REPLACE_BLOCK((byte)83),
   COPY_BLOCK((byte)84),
@@ -55,7 +55,7 @@ public enum Op {
 
   /** Read from in */
   public static Op read(DataInput in) throws IOException {
-    return valueOf(in.readByte());
+    return valueOf(in.readByte()); // 如果是写数据块对应是(byte)80, 返回Op.WRITE_BLOCK
   }
 
   /** Write to out */

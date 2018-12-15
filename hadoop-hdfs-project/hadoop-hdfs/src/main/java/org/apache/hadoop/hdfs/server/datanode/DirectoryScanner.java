@@ -58,13 +58,13 @@ public class DirectoryScanner implements Runnable {
   private static final Log LOG = LogFactory.getLog(DirectoryScanner.class);
 
   private final FsDatasetSpi<?> dataset;
-  private final ExecutorService reportCompileThreadPool;
-  private final ScheduledExecutorService masterThread;
+  private final ExecutorService reportCompileThreadPool; // 异步收集磁盘上数据块信息的线程池
+  private final ScheduledExecutorService masterThread; // 主线程，定期调用run方法，执行整个扫描逻辑
   private final long scanPeriodMsecs;
   private volatile boolean shouldRun = false;
   private boolean retainDiffs = false;
 
-  final ScanInfoPerBlockPool diffs = new ScanInfoPerBlockPool();
+  final ScanInfoPerBlockPool diffs = new ScanInfoPerBlockPool(); // 描述磁盘上保存的数据块信息和内存之间差异，在扫描过程中更新，扫描结束后，把diffs更新到FsDatasetImpl
   final Map<String, Stats> stats = new HashMap<String, Stats>();
   
   /**
@@ -311,26 +311,26 @@ public class DirectoryScanner implements Runnable {
   DirectoryScanner(FsDatasetSpi<?> dataset, Configuration conf) {
     this.dataset = dataset;
     int interval = conf.getInt(DFSConfigKeys.DFS_DATANODE_DIRECTORYSCAN_INTERVAL_KEY,
-        DFSConfigKeys.DFS_DATANODE_DIRECTORYSCAN_INTERVAL_DEFAULT);
+        DFSConfigKeys.DFS_DATANODE_DIRECTORYSCAN_INTERVAL_DEFAULT); // 默认值6小时
     scanPeriodMsecs = interval * 1000L; //msec
     int threads = 
         conf.getInt(DFSConfigKeys.DFS_DATANODE_DIRECTORYSCAN_THREADS_KEY,
-                    DFSConfigKeys.DFS_DATANODE_DIRECTORYSCAN_THREADS_DEFAULT);
+                    DFSConfigKeys.DFS_DATANODE_DIRECTORYSCAN_THREADS_DEFAULT); // 默认值为1
 
     reportCompileThreadPool = Executors.newFixedThreadPool(threads, 
-        new Daemon.DaemonFactory());
+        new Daemon.DaemonFactory()); // 后台线程工厂类
     masterThread = new ScheduledThreadPoolExecutor(1,
         new Daemon.DaemonFactory());
   }
-
+  // 启动入口
   void start() {
     shouldRun = true;
     long offset = DFSUtil.getRandom().nextInt((int) (scanPeriodMsecs/1000L)) * 1000L; //msec
-    long firstScanTime = Time.now() + offset;
+    long firstScanTime = Time.now() + offset; // 设置一个随机启动时间
     LOG.info("Periodic Directory Tree Verification scan starting at " 
         + firstScanTime + " with interval " + scanPeriodMsecs);
     masterThread.scheduleAtFixedRate(this, offset, scanPeriodMsecs, 
-                                     TimeUnit.MILLISECONDS);
+                                     TimeUnit.MILLISECONDS); // 延迟offset后启动当前类(DirectoryScanner也是一个线程类)，执行周期是6小时
   }
   
   // for unit test
@@ -357,7 +357,7 @@ public class DirectoryScanner implements Runnable {
       }
 
       //We're are okay to run - do it
-      reconcile();      
+      reconcile(); // 执行逻辑
       
     } catch (Exception e) {
       //Log and continue - allows Executor to run again next cycle
@@ -404,8 +404,9 @@ public class DirectoryScanner implements Runnable {
     scan();
     for (Entry<String, LinkedList<ScanInfo>> entry : diffs.entrySet()) {
       String bpid = entry.getKey();
+      // 遍历差异信息
       LinkedList<ScanInfo> diff = entry.getValue();
-      
+      // 更新FsDataset保存的数据块
       for (ScanInfo info : diff) {
         dataset.checkAndUpdate(bpid, info.getBlockId(), info.getBlockFile(),
             info.getMetaFile(), info.getVolume());
@@ -419,8 +420,8 @@ public class DirectoryScanner implements Runnable {
    * Scan only the "finalized blocks" lists of both disk and memory.
    */
   void scan() {
-    clear();
-    Map<String, ScanInfo[]> diskReport = getDiskReport();
+    clear(); // 清空集合，初始化
+    Map<String, ScanInfo[]> diskReport = getDiskReport(); // 获取当前节点上面所有finalized的block信息
 
     // Hold FSDataset lock to prevent further changes to the block map
     synchronized(dataset) {

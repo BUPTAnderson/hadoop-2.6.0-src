@@ -225,7 +225,7 @@ public class StorageInfo {
    */
   public void readProperties(StorageDirectory sd) throws IOException {
     Properties props = readPropertiesFile(sd.getVersionFile());
-    setFieldsFromProperties(props, sd);
+    setFieldsFromProperties(props, sd); // DataStorage对象进入该方法的话，调用的是DataStorage重载的setFieldsFromProperties方法
   }
   
   /**

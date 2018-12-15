@@ -93,7 +93,7 @@ public class DatanodeManager {
   private final NetworkTopology networktopology; // 维护整个网络的拓扑结构
 
   /** Host names to datanode descriptors mapping. */
-  private final Host2NodesMap host2DatanodeMap = new Host2NodesMap(); // host -> DatanodeDescriptor， 因为一个节点上可能会有多个datanode。所以在Host2NodesMap内部其实是String到DatanodeDescriptor[]的映射
+  private final Host2NodesMap host2DatanodeMap = new Host2NodesMap(); // host -> DatanodeDescriptor， 因为一个节点上可能会有多个datanode。所以在Host2NodesMap内部其实是ip地址到DatanodeDescriptor[]的映射
 
   private final DNSToSwitchMapping dnsToSwitchMapping; // 用来把集群中的node转换成对应的网络位置，比如将域名/IP地址转换成集群中对应的网络位置。
   private final boolean rejectUnresolvedTopologyDN;
@@ -706,7 +706,7 @@ public class DatanodeManager {
       throws UnresolvedTopologyException {
     List<String> names = new ArrayList<String>(1);
     if (dnsToSwitchMapping instanceof CachedDNSToSwitchMapping) { // dnsToSwitchMapping默认是ScriptBasedMapping，ScriptBasedMapping继承了CachedDNSToSwitchMapping，所以执行if中的逻辑
-      names.add(node.getIpAddr());
+      names.add(node.getIpAddr()); // 这里获取的是ip
     } else {
       names.add(node.getHostName());
     }
@@ -841,9 +841,11 @@ public class DatanodeManager {
    */
   boolean checkDecommissionState(DatanodeDescriptor node) {
     // Check to see if all blocks in this decommissioned
-    // node has reached their target replication factor.
+    // node has reached their target replication factor. // checkBlockReportReceived方法会检查该DatanodeDescriptor所有存储目录DatanodeStorageInfo，是不是都收到了第一次块汇报
     if (node.isDecommissionInProgress() && node.checkBlockReportReceived()) {
-      // 调用isReplicationInProgress判断撤销操作是否完成，如果完成了撤销操作，则设置节点状态为"已撤销"状态
+      // 撤销节点上的复制操作都是由isReplicationInProgress这个方法触发的
+      // 调用isReplicationInProgress判断撤销操作是否完成，如果完成了撤销操作，则设置节点状态为"已撤销"状态.
+      // 如果isReplicationInPogress返回FALSE代表了,已经全部完成拷贝工作了,状态就可以修改为decomissioned结束状态了
       if (!blockManager.isReplicationInProgress(node)) {
         node.setDecommissioned();
         LOG.info("Decommission complete for " + node);
@@ -862,7 +864,7 @@ public class DatanodeManager {
         LOG.info("Start Decommissioning " + node + " " + storage
             + " with " + storage.numBlocks() + " blocks");
       }
-      // 设置DatanodeDescriptor.adminState状态
+      // 设置DatanodeDescriptor.adminState状态为AdminStates.DECOMMISSION_INPROGRESS状态
       heartbeatManager.startDecommission(node);
       node.decommissioningStatus.setStartTime(now());
       
@@ -899,23 +901,23 @@ public class DatanodeManager {
    */
   public void registerDatanode(DatanodeRegistration nodeReg)
       throws DisallowedDatanodeException, UnresolvedTopologyException {
-    InetAddress dnAddress = Server.getRemoteIp();
-    if (dnAddress != null) {
-      // Mostly called inside an RPC, update ip and peer hostname
-      String hostname = dnAddress.getHostName(); // localhost
-      String ip = dnAddress.getHostAddress(); // 127.0.0.1
-      if (checkIpHostnameInRegistration && !isNameResolved(dnAddress)) {
-        // Reject registration of unresolved datanode to prevent performance
-        // impact of repetitive DNS lookups later.
-        final String message = "hostname cannot be resolved (ip="
-            + ip + ", hostname=" + hostname + ")";
-        LOG.warn("Unresolved datanode registration: " + message);
-        throw new DisallowedDatanodeException(nodeReg, message);
-      }
-      // update node registration with the ip and hostname from rpc request
-      nodeReg.setIpAddr(ip);
-      nodeReg.setPeerHostName(hostname);
-    }
+//    InetAddress dnAddress = Server.getRemoteIp();
+//    if (dnAddress != null) {
+//      // Mostly called inside an RPC, update ip and peer hostname
+//      String hostname = dnAddress.getHostName(); // 获取dn的hostname， 比如localhost
+//      String ip = dnAddress.getHostAddress(); // 获取dn的ip地址：127.0.0.1
+//      if (checkIpHostnameInRegistration && !isNameResolved(dnAddress)) {
+//        // Reject registration of unresolved datanode to prevent performance
+//        // impact of repetitive DNS lookups later.
+//        final String message = "hostname cannot be resolved (ip="
+//            + ip + ", hostname=" + hostname + ")";
+//        LOG.warn("Unresolved datanode registration: " + message);
+//        throw new DisallowedDatanodeException(nodeReg, message);
+//      }
+//      // update node registration with the ip and hostname from rpc request
+//      nodeReg.setIpAddr(ip); // 设置ip地址
+//      nodeReg.setPeerHostName(hostname);
+//    }
     
     try {
       nodeReg.setExportedKeys(blockManager.getBlockKeys());
@@ -957,7 +959,7 @@ public class DatanodeManager {
             NameNode.stateChangeLog.debug("BLOCK* registerDatanode: "
                 + "node restarted.");
           }
-        } else { // 修改IP后重启
+        } else { // 修改IP后重启，即ip发生了变化
           // nodeS is found
           /* The registering datanode is a replacement node for the existing
             data storage, which from now on will be served by a new node.
@@ -1010,7 +1012,7 @@ public class DatanodeManager {
         }
         return;
       }
-      // 上面处理的是已经注册过的情况，接下来处理从未注册的过的新节点注册的情况
+      // 上面处理的是已经注册过的情况，接下来处理从未注册的过的新节点注册的情况/使用新的storageId注册也会执行该段逻辑
       // nodeS==null && nodeN == null，即datanode第一次注册的情况, 系统会将该DataNode的网络位置设置为默认的网络位置：/default-rack, 然后在后续的操作中，如果发现用户配置了映射脚本，则对该网络位置进行修正
       DatanodeDescriptor nodeDescr 
         = new DatanodeDescriptor(nodeReg, NetworkTopology.DEFAULT_RACK);
@@ -1070,7 +1072,7 @@ public class DatanodeManager {
    * checks if any of the hosts have changed states:
    */
   public void refreshNodes(final Configuration conf) throws IOException {
-    refreshHostsReader(conf); // 加载include文件于exclude文件至hostFileManager
+    refreshHostsReader(conf); // 加载include文件与exclude文件至hostFileManager
     namesystem.writeLock();
     try {
       refreshDatanodes(); // 刷新所有的数据节点
@@ -1080,7 +1082,7 @@ public class DatanodeManager {
     }
   }
 
-  /** Reread include/exclude files. */
+  /** 重新加载include/exclude 文件 Reread include/exclude files. */
   private void refreshHostsReader(Configuration conf) throws IOException {
     // Reread the conf to get dfs.hosts and dfs.hosts.exclude filenames.
     // Update the file names and refresh internal includes and excludes list.
@@ -1101,8 +1103,9 @@ public class DatanodeManager {
   private void refreshDatanodes() {
     for(DatanodeDescriptor node : datanodeMap.values()) {
       // Check if not include.
-        // 不在include文件中(如果include文件为空，则认为在include文件中)
+      // 不在include文件中(如果include文件为空，则认为在include文件中)
       if (!hostFileManager.isIncluded(node)) {
+        // 直接设置为已撤销状态，不会拷贝datanode上的数据块。所以，在撤销节点时，先在exclude文件中添加，撤销结束后再从include文件中删除
         node.setDisallowed(true); // case 2. 节点设置为不可以连接到namenode
       } else {
         if (hostFileManager.isExcluded(node)) {

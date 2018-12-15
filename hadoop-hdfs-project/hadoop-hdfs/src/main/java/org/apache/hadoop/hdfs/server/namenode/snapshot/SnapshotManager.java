@@ -395,7 +395,7 @@ public class SnapshotManager implements SnapshotStatsMXBean {
    * @return maximum allowable snapshot ID.
    */
    public int getMaxSnapshotID() {
-    return ((1 << SNAPSHOT_ID_BIT_WIDTH) - 1);
+    return ((1 << SNAPSHOT_ID_BIT_WIDTH) - 1); // 2的24次方减1
   }
 
   private ObjectName mxBeanName;

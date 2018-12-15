@@ -110,8 +110,9 @@ public class INodeFile extends INodeWithAdditionalFields
     }
   }
 
+  // 保存了当前文件有多少个副本，以及文件数据块的大小。前4个bit用于保存存储策略，中间12个bit用于保存文件备份系数，后48个bit用于保存数据块大小（默认是设置的数据块大小，比如如果每个数据块大小是128MB，则后48位为 1 << 27 = 134217728字节 = 128MB）。使用内部类HeaderFormat处理
   private long header = 0L;
-
+  // 文件数据块信息
   private BlockInfo[] blocks;
 
   INodeFile(long id, byte[] name, PermissionStatus permissions, long mtime,
@@ -183,8 +184,10 @@ public class INodeFile extends INodeWithAdditionalFields
   INodeFile toUnderConstruction(String clientName, String clientMachine) {
     Preconditions.checkState(!isUnderConstruction(),
         "file is already under construction");
+    // 构建FileUnderConstructionFeature对象
     FileUnderConstructionFeature uc = new FileUnderConstructionFeature(
         clientName, clientMachine);
+    // 添加到INode的features字段中保存
     addFeature(uc);
     return this;
   }
@@ -634,15 +637,15 @@ public class INodeFile extends INodeWithAdditionalFields
     }
     final int last = blocks.length - 1;
     //check if the last block is BlockInfoUnderConstruction
-    long size = blocks[last].getNumBytes();
-    if (blocks[last] instanceof BlockInfoUnderConstruction) {
-       if (!includesLastUcBlock) {
+    long size = blocks[last].getNumBytes(); // 获取最后一个数据块大小
+    if (blocks[last] instanceof BlockInfoUnderConstruction) { // 如果最后一个数据块是BlockInfoUnderConstruction
+       if (!includesLastUcBlock) { // 不包括最后一个构建数据块大小
          size = 0;
        } else if (usePreferredBlockSize4LastUcBlock) {
-         size = getPreferredBlockSize();
+         size = getPreferredBlockSize(); // 获取期望的block大小，通常就是hdfs中设置的block大小，比如128MB，这里返回的就是134217728， 134217728byte = 128MB
        }
     }
-    //sum other blocks
+    //sum other blocks， 计算其它数据块大小
     for(int i = 0; i < last; i++) {
       size += blocks[i].getNumBytes();
     }

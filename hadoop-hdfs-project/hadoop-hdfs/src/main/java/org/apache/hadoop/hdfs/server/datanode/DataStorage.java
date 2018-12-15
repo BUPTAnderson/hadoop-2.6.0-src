@@ -54,7 +54,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/** 
+/**
+ * 可以认为对应整个datanode的存储。负责管理与组织datanode的磁盘存储空间，同时也负责管理存储空间的生命周期(包括升级、回滚、提交等操作)
  * Data storage information file.
  * <p>
  * @see Storage
@@ -90,12 +91,12 @@ public class DataStorage extends Storage {
    *  upgraded from a pre-UUID version. For compatibility with prior
    *  versions of Datanodes we cannot make this field a UUID.
    */
-  private String datanodeUuid = null;
+  private String datanodeUuid = null; // 一个datanode有唯一的一个uuid与之对应
 
   // Flag to ensure we only initialize storage once
   private boolean initialized = false;
   
-  // Maps block pool IDs to block pool storage
+  // Maps block pool IDs to block pool storage， 即bpid -> BlockPoolSliceStorage， BlockPoolSliceStorage类管理Datanode上单个块池的存储空间
   private final Map<String, BlockPoolSliceStorage> bpStorageMap
       = Collections.synchronizedMap(new HashMap<String, BlockPoolSliceStorage>());
 
@@ -124,7 +125,7 @@ public class DataStorage extends Storage {
 
   /** Create an ID for this storage. */
   public synchronized void createStorageID(StorageDirectory sd) {
-    if (sd.getStorageUuid() == null) {
+    if (sd.getStorageUuid() == null) { // 之前已经设置了，这里直接跳过
       sd.setStorageUuid(DatanodeStorage.generateUuid());
     }
   }
@@ -247,16 +248,19 @@ public class DataStorage extends Storage {
       StartupOption startOpt, boolean isInitialize, boolean ignoreExistingDirs)
       throws IOException {
     Set<String> existingStorageDirs = new HashSet<String>();
+    // 最开始getNumStorageDirs返回0
     for (int i = 0; i < getNumStorageDirs(); i++) {
       existingStorageDirs.add(getStorageDir(i).getRoot().getAbsolutePath());
     }
 
     // 1. For each data directory calculate its state and check whether all is
     // consistent before transitioning. Format and recover.
+    // 1. 确保每个存储目录都处于NORMAL状态
     ArrayList<StorageState> dataDirStates =
         new ArrayList<StorageState>(dataDirs.size());
     List<StorageDirectory> addedStorageDirectories =
         new ArrayList<StorageDirectory>();
+    // 对每一个存储目录，构造StorageDirectory对象
     for(Iterator<StorageLocation> it = dataDirs.iterator(); it.hasNext();) {
       File dataDir = it.next().getFile();
       if (existingStorageDirs.contains(dataDir.getAbsolutePath())) {
@@ -267,23 +271,25 @@ public class DataStorage extends Storage {
       StorageDirectory sd = new StorageDirectory(dataDir);
       StorageState curState;
       try {
+        // 调用analyzeStorage方法分析当前StorageDirectory的状态， 首次启动返回的是NOT_FORMATTED，平时重启的话返回的是NORMAL
         curState = sd.analyzeStorage(startOpt, this);
-        // sd is locked but not opened
+        // sd is locked but not opened， 根据curState执行不同的操作
         switch (curState) {
-        case NORMAL:
+        case NORMAL: // 存储目录正常，不用执行任何操作
           break;
-        case NON_EXISTENT:
+        case NON_EXISTENT: // 对于不存在的情况，直接忽略
           // ignore this storage
           LOG.info("Storage directory " + dataDir + " does not exist");
           it.remove();
           continue;
-        case NOT_FORMATTED: // format
+        case NOT_FORMATTED: // 没有格式化，调用format方法格式化数据目录
           LOG.info("Storage directory " + dataDir + " is not formatted for "
             + nsInfo.getBlockPoolID());
           LOG.info("Formatting ...");
+          // 初始化存储目录，写入VERSION文件， datanode.getDatanodeUuid()返回的是null
           format(sd, nsInfo, datanode.getDatanodeUuid());
           break;
-        default:  // recovery part is common
+        default:  // recovery part is common， 对于其它情况，则调用StorageDirectory.doRecover方法恢复到NORMAL状态
           sd.doRecover(curState);
         }
       } catch (IOException ioe) {
@@ -294,10 +300,11 @@ public class DataStorage extends Storage {
         continue;
       }
       if (isInitialize) {
-        addStorageDir(sd);
+        addStorageDir(sd); // 将sd加入到storageDirs队列中
       }
+      // 将StorageDirectory对象加入到addedStorageDirectories保存
       addedStorageDirectories.add(sd);
-      dataDirStates.add(curState);
+      dataDirStates.add(curState); // 首次调用，curState是NOT_FORMATTED
     }
 
     if (dataDirs.size() == 0 || dataDirStates.size() == 0) {
@@ -315,10 +322,10 @@ public class DataStorage extends Storage {
     // while others could be up-to-date for the regular startup.
     for (Iterator<StorageDirectory> it = addedStorageDirectories.iterator();
         it.hasNext(); ) {
-      StorageDirectory sd = it.next();
+      StorageDirectory sd = it.next(); // 针对配置的每个数据存储目录，执行下面的逻辑
       try {
-        doTransition(datanode, sd, nsInfo, startOpt);
-        createStorageID(sd);
+        doTransition(datanode, sd, nsInfo, startOpt); // 执行启动选项定义的操作， 正常启动的话传入的是REGULAR，实际会读取本地VERSION中的参数设置给当前对象DataStorage和sd，另外做一些简单的校验逻辑
+        createStorageID(sd); // 创建storageId，之前已经创建过了，如果是正常启动，在上一步doTransition方法中会把本地VERSION中的storageID设置给sd
       } catch (IOException e) {
         if (!isInitialize) {
           sd.unlock();
@@ -331,10 +338,10 @@ public class DataStorage extends Storage {
     }
 
     // 3. Update all successfully loaded storages. Some of them might have just
-    // been formatted.
+    // been formatted. 对于每一个成功执行的存储目录，在current目录下写入VERSION文件,如果VERSION文件已经存在，会被重写
     this.writeAll(addedStorageDirectories);
 
-    // 4. Make newly loaded storage directories visible for service.
+    // 4. Make newly loaded storage directories visible for service. 初始化完成，这是isInitialize是true， 将所有的torageDirectory加入到DataStorage.storageDirs属性中保存，这里我们可以知道storageDirs保存的就是当前datanode配置的${dfs.datanode.data.dir}所有目录
     if (!isInitialize) {
       this.storageDirs.addAll(addedStorageDirectories);
     }
@@ -392,6 +399,7 @@ public class DataStorage extends Storage {
       NamespaceInfo nsInfo, Collection<StorageLocation> dataDirs,
       StartupOption startOpt)
       throws IOException {
+    // 如果datanode配置的目录${dfs.datanode.data.dir}已经初始化过了，直接返回，每次重启服务，这个initialized是false
     if (initialized) {
       // DN storage has been initialized, no need to do anything
       return;
@@ -400,9 +408,10 @@ public class DataStorage extends Storage {
         + " and NameNode layout version: " + nsInfo.getLayoutVersion());
 
     this.storageDirs = new ArrayList<StorageDirectory>(dataDirs.size());
+    // 调用addStorageLocations方法对datanode存储空间进行初始化
     addStorageLocations(datanode, nsInfo, dataDirs, startOpt, true, false);
     
-    // mark DN storage is initialized
+    // mark DN storage is initialized 设置datanode的初始化状态
     this.initialized = true;
   }
 
@@ -419,23 +428,27 @@ public class DataStorage extends Storage {
   void recoverTransitionRead(DataNode datanode, String bpID, NamespaceInfo nsInfo,
       Collection<StorageLocation> dataDirs, StartupOption startOpt) throws IOException {
     // First ensure datanode level format/snapshot/rollback is completed
+    // 存储目录的初始化(dfs.datanode.data.dir目录)首先确保Datanode定义的所有存储目录的状态正常，然后触发启动参数对应的方法，主要是读取VERSION文件设置DataStorage相关参数，创建current目录下的VERSION文件(已经存在会被重写)
     recoverTransitionRead(datanode, nsInfo, dataDirs, startOpt);
 
     // Create list of storage directories for the block pool
+    // 在datanode的所有存储目录下创建块池存储目录，将所有块池目录放入bpDataDirs中保存
     Collection<File> bpDataDirs = new ArrayList<File>();
     for(StorageLocation dir : dataDirs) {
-      File dnRoot = dir.getFile();
+      File dnRoot = dir.getFile(); // dnRoot对应的就是配置的存储目录，比如/Users/momo/software/hadoop-2.6.0/hadoop-data1， bpRoot是每个存储目录下的块池目录
       File bpRoot = BlockPoolSliceStorage.getBpRoot(bpID, new File(dnRoot,
-          STORAGE_DIR_CURRENT));
+          STORAGE_DIR_CURRENT)); // bpId示例：BP-1298850809-172.16.99.10-1525839474746， bpRoot示例：/Users/momo/software/hadoop-2.6.0/hadoop-data1/current/BP-1298850809-172.16.99.10-1525839474746，bpRoot示例： /Users/momo/software/hadoop-2.6.0/hadoop-data2/current/BP-1298850809-172.16.99.10-1525839474746
       bpDataDirs.add(bpRoot);
     }
 
-    // mkdir for the list of BlockPoolStorage
+    // mkdir for the list of BlockPoolStorage, 在current目录下创建块池目录,比如：/Users/momo/software/hadoop-2.6.0/hadoop-data1/current/BP-1298850809-172.16.99.10-1525839474746，/Users/momo/software/hadoop-2.6.0/hadoop-data2/current/BP-1298850809-172.16.99.10-1525839474746
     makeBlockPoolDataDir(bpDataDirs, null);
+    // 构建当前bpId(块池)对应的BlockPoolSliceStorage对象, 一个BlockPoolSliceStorage负责管理datanode上某个块池的存储空间(多个存储目录下对应的块池目录)，BlockPoolSliceStorage管理着该datanode上相同bpid的所有BlockPoolSlice。
     BlockPoolSliceStorage bpStorage = new BlockPoolSliceStorage(
         nsInfo.getNamespaceID(), bpID, nsInfo.getCTime(), nsInfo.getClusterID());
-    
+    // 存储目录下块池目录的初始化。在BlockPoolSliceStorage对象上调用recoverTransitionRead方法，执行块池目录的初始化(bpDataDirs就是该块池在当前datanode上对应的多个块池目录), 同时在块池存储层面执行启动参数对应的操作， 会在块池对应目录下面的current目录写写入VERSION文件，如果VERSION文件已经存在会覆盖写入
     bpStorage.recoverTransitionRead(datanode, nsInfo, bpDataDirs, startOpt);
+    // 将新构建的BlockPoolSliceStorage对象放入DataStorage.bpStorageMap中
     addBlockPoolStorage(bpID, bpStorage);
   }
 
@@ -469,14 +482,16 @@ public class DataStorage extends Storage {
 
   void format(StorageDirectory sd, NamespaceInfo nsInfo,
               String datanodeUuid) throws IOException {
+    // 清空存储目录
     sd.clearDirectory(); // create directory
+    // 获取layoutVersion， 如果与namenode版本一致的话返回的layoutVersion相同，比如-56
     this.layoutVersion = HdfsConstants.DATANODE_LAYOUT_VERSION;
     this.clusterID = nsInfo.getClusterID();
     this.namespaceID = nsInfo.getNamespaceID();
     this.cTime = 0;
-    setDatanodeUuid(datanodeUuid);
+    setDatanodeUuid(datanodeUuid); // 初次调用datanodeUuid为null
 
-    if (sd.getStorageUuid() == null) {
+    if (sd.getStorageUuid() == null) { // 初次调用返回null
       // Assign a new Storage UUID.
       sd.setStorageUuid(DatanodeStorage.generateUuid());
     }
@@ -500,7 +515,7 @@ public class DataStorage extends Storage {
     props.setProperty("layoutVersion", String.valueOf(layoutVersion));
     props.setProperty("storageID", sd.getStorageUuid());
 
-    String datanodeUuid = getDatanodeUuid();
+    String datanodeUuid = getDatanodeUuid(); // 初次调用，datanodeUuid为null
     if (datanodeUuid != null) {
       props.setProperty("datanodeUuid", datanodeUuid);
     }
@@ -528,11 +543,11 @@ public class DataStorage extends Storage {
     if (overrideLayoutVersion) {
       this.layoutVersion = toLayoutVersion;
     } else {
-      setLayoutVersion(props, sd);
+      setLayoutVersion(props, sd); // 设置当前对象DataStorage的layoutVersion
     }
-    setcTime(props, sd);
-    checkStorageType(props, sd);
-    setClusterId(props, layoutVersion, sd);
+    setcTime(props, sd); // 设置cTime
+    checkStorageType(props, sd); // 检查StorageType
+    setClusterId(props, layoutVersion, sd); // 设置ClusterId
     
     // Read NamespaceID in version before federation
     if (!DataNodeLayoutVersion.supports(
@@ -542,12 +557,12 @@ public class DataStorage extends Storage {
     
 
     // valid storage id, storage id may be empty
-    String ssid = props.getProperty("storageID");
+    String ssid = props.getProperty("storageID"); // 获取VERSION中的StorageID
     if (ssid == null) {
       throw new InconsistentFSStateException(sd.getRoot(), "file "
           + STORAGE_FILE_VERSION + " is invalid.");
     }
-    String sid = sd.getStorageUuid();
+    String sid = sd.getStorageUuid(); // 此时sd的storageId还是null
     if (!(sid == null || sid.equals("") ||
           ssid.equals("") || sid.equals(ssid))) {
       throw new InconsistentFSStateException(sd.getRoot(),
@@ -555,7 +570,7 @@ public class DataStorage extends Storage {
     }
 
     if (sid == null) { // update id only if it was null
-      sd.setStorageUuid(ssid);
+      sd.setStorageUuid(ssid); // 设置sd的storageUuid
     }
 
     // Update the datanode UUID if present.
@@ -563,7 +578,7 @@ public class DataStorage extends Storage {
       String dnUuid = props.getProperty("datanodeUuid");
 
       if (getDatanodeUuid() == null) {
-        setDatanodeUuid(dnUuid);
+        setDatanodeUuid(dnUuid); // 设置当前DataStorage的datanodeUuid
       } else if (getDatanodeUuid().compareTo(dnUuid) != 0) {
         throw new InconsistentFSStateException(sd.getRoot(),
             "Root " + sd.getRoot() + ": DatanodeUuid=" + dnUuid +
@@ -620,18 +635,20 @@ public class DataStorage extends Storage {
                              NamespaceInfo nsInfo, 
                              StartupOption startOpt
                              ) throws IOException {
-    if (startOpt == StartupOption.ROLLBACK) {
+    if (startOpt == StartupOption.ROLLBACK) { // 正常启动的话，startOpt是REGULAR， 如果是ROLLBACK则执行回滚操作
       doRollback(sd, nsInfo); // rollback if applicable
     }
+    // 读取VERSION文件中的配置信息，设置给sd和当前DataStorage对象
     readProperties(sd);
     checkVersionUpgradable(this.layoutVersion);
     assert this.layoutVersion >= HdfsConstants.DATANODE_LAYOUT_VERSION :
       "Future version is not allowed";
-    
+    // federationSupported为true
     boolean federationSupported = 
       DataNodeLayoutVersion.supports(
           LayoutVersion.Feature.FEDERATION, layoutVersion);
     // For pre-federation version - validate the namespaceID
+    // 不支持Federation部署时，验证namespaceId是否匹配，不匹配则抛出异常
     if (!federationSupported &&
         getNamespaceID() != nsInfo.getNamespaceID()) {
       throw new IOException("Incompatible namespaceIDs in "
@@ -641,6 +658,7 @@ public class DataStorage extends Storage {
     }
     
     // For version that supports federation, validate clusterID
+    // 支持Federation部署时，验证ClusterID是否匹配，不匹配则抛出异常
     if (federationSupported
         && !getClusterID().equals(nsInfo.getClusterID())) {
       throw new IOException("Incompatible clusterIDs in "
@@ -651,11 +669,11 @@ public class DataStorage extends Storage {
     // After addition of the federation feature, ctime check is only 
     // meaningful at BlockPoolSliceStorage level. 
 
-    // regular start up. 
+    // regular start up. 磁盘布局版本号与代码布局版本号一致，正常启动
     if (this.layoutVersion == HdfsConstants.DATANODE_LAYOUT_VERSION)
       return; // regular startup
     
-    // do upgrade
+    // do upgrade 磁盘布局版本号小于代码布局版本号，则调用doUpgrade升级
     if (this.layoutVersion > HdfsConstants.DATANODE_LAYOUT_VERSION) {
       doUpgrade(datanode, sd, nsInfo);  // upgrade
       return;
@@ -665,6 +683,7 @@ public class DataStorage extends Storage {
     // than the version supported by datanode. This should have been caught
     // in readProperties(), even if rollback was not carried out or somehow
     // failed.
+    // 磁盘布局版本号大于Datanode支持的布局版本号，则抛出异常
     throw new IOException("BUG: The stored LV = " + this.getLayoutVersion()
         + " is newer than the supported LV = "
         + HdfsConstants.DATANODE_LAYOUT_VERSION);

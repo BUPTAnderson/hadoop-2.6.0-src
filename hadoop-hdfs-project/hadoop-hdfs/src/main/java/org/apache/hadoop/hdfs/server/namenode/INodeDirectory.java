@@ -66,7 +66,7 @@ public class INodeDirectory extends INodeWithAdditionalFields
 
   protected static final int DEFAULT_FILES_PER_DIRECTORY = 5;
   final static byte[] ROOT_NAME = DFSUtil.string2Bytes("");
-
+  // 保存当前目录中所有孩子节点的INode对象
   private List<INode> children = null;
   
   /** constructor */
@@ -176,6 +176,12 @@ public class INodeDirectory extends INodeWithAdditionalFields
     return getDirectoryWithQuotaFeature() != null;
   }
 
+  /**
+   * 向当前目录添加磁盘配额特性
+   * @param nsQuota 命名空间nameservice大小配额
+   * @param dsQuota 磁盘空间配额
+   * @return
+   */
   DirectoryWithQuotaFeature addDirectoryWithQuotaFeature(
       long nsQuota, long dsQuota) {
     Preconditions.checkState(!isWithQuota(), "Directory is already with quota");
@@ -186,6 +192,7 @@ public class INodeDirectory extends INodeWithAdditionalFields
   }
 
   int searchChildren(byte[] name) {
+    // binarySearch: 如果搜索键包含在列表中，则返回搜索键的索引；否则返回 (-(插入点) - 1)。插入点 被定义为将键插入列表的那一点：即第一个大于此键的元素索引；
     return children == null? -1: Collections.binarySearch(children, name);
   }
   
@@ -390,10 +397,10 @@ public class INodeDirectory extends INodeWithAdditionalFields
   public INode getChild(byte[] name, int snapshotId) {
     DirectoryWithSnapshotFeature sf;
     if (snapshotId == Snapshot.CURRENT_STATE_ID || 
-        (sf = getDirectoryWithSnapshotFeature()) == null) {
-      ReadOnlyList<INode> c = getCurrentChildrenList();
-      final int i = ReadOnlyList.Util.binarySearch(c, name);
-      return i < 0 ? null : c.get(i);
+        (sf = getDirectoryWithSnapshotFeature()) == null) { // 非snapshot下snapshotId == Snapshot.CURRENT_STATE_ID
+      ReadOnlyList<INode> c = getCurrentChildrenList(); // 获取当前节点的子节点列表
+      final int i = ReadOnlyList.Util.binarySearch(c, name); // 二分查找name在c中的index
+      return i < 0 ? null : c.get(i); // 查找到了，返回对应的index的INode
     }
     
     return sf.getChild(this, name, snapshotId);
@@ -433,10 +440,12 @@ public class INodeDirectory extends INodeWithAdditionalFields
    */
   public ReadOnlyList<INode> getChildrenList(final int snapshotId) {
     DirectoryWithSnapshotFeature sf;
+    // 如果当前快照Id是当前状态ID或当前目录的snapshot特性为空,则直接返回当前目录的子节点信息
     if (snapshotId == Snapshot.CURRENT_STATE_ID
         || (sf = this.getDirectoryWithSnapshotFeature()) == null) {
       return getCurrentChildrenList();
     }
+    // 否则从对应的snapshot中返回信息
     return sf.getChildrenList(this, snapshotId);
   }
   
@@ -487,11 +496,12 @@ public class INodeDirectory extends INodeWithAdditionalFields
    * @return true if the child is removed; false if the child is not found.
    */
   public boolean removeChild(final INode child) {
+    // 找到INode节点在children列表中的位置
     final int i = searchChildren(child.getLocalNameBytes());
     if (i < 0) {
       return false;
     }
-
+    // 从children列表中移除
     final INode removed = children.remove(i);
     Preconditions.checkState(removed == child);
     return true;
@@ -509,7 +519,9 @@ public class INodeDirectory extends INodeWithAdditionalFields
    */
   public boolean addChild(INode node, final boolean setModTime,
       final int latestSnapshotId) throws QuotaExceededException {
+    // 在孩子节点列表中查找同名节点
     final int low = searchChildren(node.getLocalNameBytes());
+    // 如果目标节点已存在，则返回false
     if (low >= 0) {
       return false;
     }
@@ -522,7 +534,7 @@ public class INodeDirectory extends INodeWithAdditionalFields
       }
       return sf.addChild(this, node, setModTime, latestSnapshotId);
     }
-    addChild(node, low);
+    addChild(node, low); // 继续调用
     if (setModTime) {
       // update modification time of the parent directory
       updateModificationTime(node.getModificationTime(), latestSnapshotId);
@@ -531,10 +543,12 @@ public class INodeDirectory extends INodeWithAdditionalFields
   }
 
   public boolean addChild(INode node) {
+    // 先找到INode节点在children列表中的位置
     final int low = searchChildren(node.getLocalNameBytes());
     if (low >= 0) {
       return false;
     }
+    // 将节点插入到children列表的指定位置
     addChild(node, low);
     return true;
   }
@@ -547,7 +561,9 @@ public class INodeDirectory extends INodeWithAdditionalFields
     if (children == null) {
       children = new ArrayList<INode>(DEFAULT_FILES_PER_DIRECTORY);
     }
+    // 设置节点node的父目录
     node.setParent(this);
+    // 添加到children中
     children.add(-insertionPoint - 1, node);
 
     if (node.getGroupName() == null) {

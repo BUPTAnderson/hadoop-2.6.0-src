@@ -125,14 +125,15 @@ public class PacketReceiver implements Closeable {
     //
     // HEADER:    the actual packet header fields, encoded in protobuf
     // CHECKSUMS: the crcs for the data chunk. May be missing if
-    //            checksums were not requested
-    // DATA       the actual block data
+    //            checksums were not requested， 一个一个的Checksum数据，一个chunk对应一个checksum
+    // DATA       the actual block data, 一个一个的chunk数据
     Preconditions.checkState(curHeader == null || !curHeader.isLastPacketInBlock());
 
     curPacketBuf.clear();
     curPacketBuf.limit(PacketHeader.PKT_LENGTHS_LEN);
     doReadFully(ch, in, curPacketBuf);
     curPacketBuf.flip();
+    // 读取PLEN值，即整个packet的长度=4 + checksums长度 + data长度
     int payloadLen = curPacketBuf.getInt();
     
     if (payloadLen < Ints.BYTES) {
@@ -141,7 +142,9 @@ public class PacketReceiver implements Closeable {
       throw new IOException("Invalid payload length " +
           payloadLen);
     }
+    // 获取数据和校验部分的长度(校验部分和数据部分长度 = checksums长度 + data长度), 即从payloadLen-4，payloadLen中这个4是一些历史原因导致的
     int dataPlusChecksumLen = payloadLen - Ints.BYTES;
+    // HEADER的长度
     int headerLen = curPacketBuf.getShort();
     if (headerLen < 0) {
       throw new IOException("Invalid header length " + headerLen);
@@ -162,18 +165,22 @@ public class PacketReceiver implements Closeable {
 
     // Make sure we have space for the whole packet, and
     // read it.
+    // 确认curPacketBuf的容量
     reallocPacketBuf(PacketHeader.PKT_LENGTHS_LEN +
         dataPlusChecksumLen + headerLen);
     curPacketBuf.clear();
+    // 将位置定位到PLEN  和 HLEN长度后
     curPacketBuf.position(PacketHeader.PKT_LENGTHS_LEN);
     curPacketBuf.limit(PacketHeader.PKT_LENGTHS_LEN +
         dataPlusChecksumLen + headerLen);
+    // 继续从流中读取PLEN  和 HLEN后面的数据，即读取HEADER     CHECKSUMS  DATA三个部分，这样一个packet读取完了
     doReadFully(ch, in, curPacketBuf);
     curPacketBuf.flip();
     curPacketBuf.position(PacketHeader.PKT_LENGTHS_LEN);
 
     // Extract the header from the front of the buffer (after the length prefixes)
     byte[] headerBuf = new byte[headerLen];
+    // 读取HEADER到headerBuf中
     curPacketBuf.get(headerBuf);
     if (curHeader == null) {
       curHeader = new PacketHeader();
@@ -181,13 +188,16 @@ public class PacketReceiver implements Closeable {
     curHeader.setFieldsFromData(dataPlusChecksumLen, headerBuf);
     
     // Compute the sub-slices of the packet
+    // 计算packet中CHECKSUMS部分的长度 = dataPlusChecksumLen(checksums长度 + data长度) - data长度
     int checksumLen = dataPlusChecksumLen - curHeader.getDataLen();
     if (checksumLen < 0) {
       throw new IOException("Invalid packet: data length in packet header " + 
           "exceeds data length received. dataPlusChecksumLen=" +
           dataPlusChecksumLen + " header: " + curHeader); 
     }
-    
+
+    // packet中： HEADER长度=headerLen， CHECKSUMS= checksumLen， DATA=curHeader.getDataLen()
+    // 将curPacketBuf的checksums提取出来赋值给curChecksumSlice，data部分提取出来赋值给curChecksumSlice
     reslicePacket(headerLen, checksumLen, curHeader.getDataLen());
   }
   
@@ -235,14 +245,16 @@ public class PacketReceiver implements Closeable {
       "headerLen= " + headerLen + " clen=" + checksumsLen + " dlen=" + dataLen +
       " rem=" + curPacketBuf.remaining();
 
-    // Slice the checksums.
+    // Slice the checksums. 切分checksums
     curPacketBuf.position(lenThroughHeader);
     curPacketBuf.limit(lenThroughChecksums);
+    // curChecksumSlice保存的是packet中checksums部分数据
     curChecksumSlice = curPacketBuf.slice();
 
-    // Slice the data.
+    // Slice the data. 切分data
     curPacketBuf.position(lenThroughChecksums);
     curPacketBuf.limit(lenThroughData);
+    // curDataSlice保存的是packet中data部分数据
     curDataSlice = curPacketBuf.slice();
     
     // Reset buffer to point to the entirety of the packet (including

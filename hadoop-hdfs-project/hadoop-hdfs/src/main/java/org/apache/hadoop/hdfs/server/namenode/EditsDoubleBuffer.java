@@ -38,12 +38,13 @@ import com.google.common.base.Preconditions;
 @InterfaceAudience.Private
 public class EditsDoubleBuffer {
 
-  private TxnBuffer bufCurrent; // current buffer for writing
-  private TxnBuffer bufReady; // buffer ready for flushing
-  private final int initBufferSize;
+  private TxnBuffer bufCurrent; // current buffer for writing 正在写入的缓冲区
+  private TxnBuffer bufReady; // buffer ready for flushing 准备好同步的缓冲区
+  private final int initBufferSize; // 缓冲区的大小
 
   public EditsDoubleBuffer(int defaultBufferSize) {
-    initBufferSize = defaultBufferSize;
+    initBufferSize = defaultBufferSize; // 默认值512*1024
+    // TxnBuffer，TxnBuffer内部实际包含了一个ByteArrayOutputStream对象，这里也就是构造两个ByteArrayOutputStream对象
     bufCurrent = new TxnBuffer(initBufferSize);
     bufReady = new TxnBuffer(initBufferSize);
 
@@ -70,7 +71,7 @@ public class EditsDoubleBuffer {
     IOUtils.cleanup(null, bufCurrent, bufReady);
     bufCurrent = bufReady = null;
   }
-  
+  // 交换两个缓冲区
   public void setReadyToFlush() {
     assert isFlushed() : "previous data not flushed yet";
     TxnBuffer tmp = bufReady;
@@ -83,12 +84,12 @@ public class EditsDoubleBuffer {
    * and resets it. Does not swap any buffers.
    */
   public void flushTo(OutputStream out) throws IOException {
-    bufReady.writeTo(out); // write data to file
-    bufReady.reset(); // erase all data in the buffer
+    bufReady.writeTo(out); // write data to file 将同步缓冲中的数据写入文件
+    bufReady.reset(); // erase all data in the buffer 将同步缓冲中的数据清空
   }
   
   public boolean shouldForceSync() {
-    return bufCurrent.size() >= initBufferSize;
+    return bufCurrent.size() >= initBufferSize; // initbufferSize为512 * 1024 = 524288， 当前大小已经大于初始设置的大小(initBufferSize)了,初始大小initBufferSize实际是TxnBuffer封装的ByteArrayOutputStream的初始大小
   }
 
   DataOutputBuffer getReadyBuf() {

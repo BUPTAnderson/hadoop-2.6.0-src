@@ -47,23 +47,29 @@ import com.google.common.annotations.VisibleForTesting;
  * When the lease is not renewed before it expires,
  * the namenode considers the writer as failed and then it may either let
  * another writer to obtain the lease or close the file.
+ * 由DFSClient用于在namenode上续订文件正在写入的租约。 当打开文件进行写入（创建或追加）时，namenode会存储用于记录写入者身份的文件租约。
+ * Writer（即DFSClient）需要定期续租。 当租约在到期之前不续约时，namenode认为Writer失败，然后它可以让另一个作者获得租约或关闭文件。
  * </p>
  * <p>
  * This class also provides the following functionality:
+ * 这个类还提供了以下功能：
  * <ul>
  * <li>
  * It maintains a map from (namenode, user) pairs to lease renewers. 
  * The same {@link LeaseRenewer} instance is used for renewing lease
  * for all the {@link DFSClient} to the same namenode and the same user.
+ * 它维护从（namenode，用户）对到租赁更新者的映射。 同一个LeaseRenewer实例用于将所有DFSClient的租约更新为同一名称节点和同一用户。
  * </li>
  * <li>
  * Each renewer maintains a list of {@link DFSClient}.
  * Periodically the leases for all the clients are renewed.
  * A client is removed from the list when the client is closed.
+ * 每个更新者维护一个DFSClient列表。 定期为所有客户续签租约。 客户端关闭时，客户端将从列表中删除。
  * </li>
  * <li>
  * A thread per namenode per user is used by the {@link LeaseRenewer}
  * to renew the leases.
+ * LeaseRenewer使用每个namenode的每个用户的线程来续租租约。
  * </li>
  * </ul>
  * </p>
@@ -254,10 +260,10 @@ class LeaseRenewer {
       throw new HadoopIllegalArgumentException(gracePeriod
           + " = gracePeriod < 100ms is too small.");
     }
-    this.gracePeriod = gracePeriod;
-    final long half = gracePeriod/2;
+    this.gracePeriod = gracePeriod; // gracePeriod默认值60*1000
+    final long half = gracePeriod/2; // 30 * 1000
     this.sleepPeriod = half < LEASE_RENEWER_SLEEP_DEFAULT?
-        half: LEASE_RENEWER_SLEEP_DEFAULT;
+        half: LEASE_RENEWER_SLEEP_DEFAULT; // sleepPeriod默认值1000
   }
 
   /** Is the daemon running? */
@@ -287,6 +293,7 @@ class LeaseRenewer {
       if (!isRunning() || isRenewerExpired()) {
         //start a new deamon with a new id.
         final int id = ++currentId;
+        // 通过线程来更新租约
         daemon = new Daemon(new Runnable() {
           @Override
           public void run() {
@@ -295,6 +302,7 @@ class LeaseRenewer {
                 LOG.debug("Lease renewer daemon for " + clientsString()
                     + " with renew id " + id + " started");
               }
+              // run方法中更新租约
               LeaseRenewer.this.run(id);
             } catch(InterruptedException e) {
               if (LOG.isDebugEnabled()) {
@@ -319,6 +327,7 @@ class LeaseRenewer {
         });
         daemon.start();
       }
+      // 将正在写入的inodeid和对于的流加入到DFSClient维护的filesBeingWritten队列中
       dfsc.putFileBeingWritten(inodeId, out);
       emptyTime = Long.MAX_VALUE;
     }
@@ -414,7 +423,7 @@ class LeaseRenewer {
       final DFSClient c = copies.get(i);
       //skip if current client name is the same as the previous name.
       if (!c.getClientName().equals(previousName)) {
-        if (!c.renewLease()) {
+        if (!c.renewLease()) { // 实际是调用DFSClient的renewLease方法更新租约
           if (LOG.isDebugEnabled()) {
             LOG.debug("Did not renew lease for client " +
                 c);
@@ -437,8 +446,9 @@ class LeaseRenewer {
     for(long lastRenewed = Time.now(); !Thread.interrupted();
         Thread.sleep(getSleepPeriod())) {
       final long elapsed = Time.now() - lastRenewed;
-      if (elapsed >= getRenewalTime()) {
+      if (elapsed >= getRenewalTime()) { // getRenewalTime默认返回30s
         try {
+          // 调用renew
           renew();
           if (LOG.isDebugEnabled()) {
             LOG.debug("Lease renewer daemon for " + clientsString()

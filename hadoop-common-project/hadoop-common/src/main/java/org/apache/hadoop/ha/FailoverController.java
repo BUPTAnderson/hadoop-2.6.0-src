@@ -169,7 +169,7 @@ public class FailoverController {
     HAServiceProtocol proxy = null;
     try {
       proxy = svc.getProxy(gracefulFenceConf, gracefulFenceTimeout);
-      proxy.transitionToStandby(createReqInfo());
+      proxy.transitionToStandby(createReqInfo()); // 调用HAServiceProtocolClientSideTranslatorPB的transitionToStandby()方法
       return true;
     } catch (ServiceFailedException sfe) {
       LOG.warn("Unable to gracefully make " + svc + " standby (" +
@@ -202,11 +202,13 @@ public class FailoverController {
       throws FailoverFailedException {
     Preconditions.checkArgument(fromSvc.getFencer() != null,
         "failover requires a fencer");
+    // 进行切换前的检查
     preFailoverChecks(fromSvc, toSvc, forceActive);
 
     // Try to make fromSvc standby
     boolean tryFence = true;
-    
+
+    // tryGracefulFence方法调用RPC接口HAServiceProtocol.transitionToStandby()将源节点切换为Standby状态
     if (tryGracefulFence(fromSvc)) {
       tryFence = forceFence;
     }
@@ -223,6 +225,7 @@ public class FailoverController {
     boolean failed = false;
     Throwable cause = null;
     try {
+      // 调用RPC接口HAServiceProtocol.transitionToActive方法将目标节点切换到Active状态
       HAServiceProtocolHelper.transitionToActive(
           toSvc.getProxy(conf, rpcTimeoutToNewActive),
           createReqInfo());
@@ -239,6 +242,7 @@ public class FailoverController {
     }
 
     // We failed to make toSvc active
+    // 将目标节点切换为active状态失败则考虑回滚，如果没有fencing源节点，则回滚到原来的状态，如果源节点以及被强制fencing，则抛出异常，因为源节点进程以及被终止，以及无法回滚到初始状态
     if (failed) {
       String msg = "Unable to failover to " + toSvc;
       // Only try to failback if we didn't fence fromSvc
@@ -248,6 +252,7 @@ public class FailoverController {
           // become active, eg we timed out waiting for its response.
           // Unconditionally force fromSvc to become active since it
           // was previously active when we initiated failover.
+          // 将toSvc与fromSvc调换，调用failover方法回滚到原先的状态
           failover(toSvc, fromSvc, true, true);
         } catch (FailoverFailedException ffe) {
           msg += ". Failback to " + fromSvc +

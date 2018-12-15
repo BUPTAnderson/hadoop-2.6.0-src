@@ -248,7 +248,7 @@ public class SecondaryNameNode implements Runnable,
     // Disable quota checks
     namesystem.dir.disableQuotaChecks();
 
-    // Initialize other scheduling parameters from the configuration
+    // Initialize other scheduling parameters from the configuration 检查点操作，定期合并edits log和fsimage
     checkpointConf = new CheckpointConf(conf);
 
     final InetSocketAddress httpAddr = infoSocAddr;
@@ -680,7 +680,7 @@ public class SecondaryNameNode implements Runnable,
     }
 
     if (secondary != null) {
-      secondary.startCheckpointThread();
+      secondary.startCheckpointThread(); // 启动线程
       secondary.join();
     }
   }

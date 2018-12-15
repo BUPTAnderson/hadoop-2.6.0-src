@@ -86,6 +86,7 @@ public class WritableSerialization extends Configured
     
     @Override
     public void open(OutputStream out) {
+      // 这里比如out是BlockingBuffer，BlockingBuffer是DataOutputStream的子类
       if (out instanceof DataOutputStream) {
         dataOut = (DataOutputStream) out;
       } else {

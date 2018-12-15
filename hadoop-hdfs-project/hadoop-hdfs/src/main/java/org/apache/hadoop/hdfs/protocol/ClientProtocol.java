@@ -140,6 +140,7 @@ public interface ClientProtocol {
   public FsServerDefaults getServerDefaults() throws IOException;
 
   /**
+   * create 方法，该方法用于在目录树上创建文件（创建目录使用mkdir），需要的参数比较多，包括文件名，权限，客户端名，是否覆盖已存在文件，副本数和块大小。
    * Create a new file entry in the namespace.
    * <p>
    * This will create an empty file specified by the source path.
@@ -406,6 +407,7 @@ public interface ClientProtocol {
           SafeModeException, UnresolvedLinkException, IOException;
 
   /**
+   * 函数作用：当客户端完成对数据块的写操作后，调用complete 完成写操作。方法complete 如果返回是false，那么，客户端需要继续调用complete 方法。
    * The client is done writing data to the given filename, and would 
    * like to complete it.  
    *
@@ -577,6 +579,7 @@ public interface ClientProtocol {
       SnapshotAccessControlException, IOException;
 
   /**
+   * getListing 对应于UNIX 系统的ls 命令，返回值是FileStatus 数组
    * Get a partial listing of the indicated directory
    *
    * @param src the directory name
@@ -654,6 +657,7 @@ public interface ClientProtocol {
   public int GET_STATS_MISSING_BLOCKS_IDX = 5;
   
   /**
+   * getStats 得到的是文件系统的信息，UNIX 对应命令为du，它的实现更简单，所有的信息都存放在FSNamesystem 对象里
    * Get a set of statistics about the filesystem.
    * Right now, only seven values are returned.
    * <ul>
@@ -672,6 +676,7 @@ public interface ClientProtocol {
   public long[] getStats() throws IOException;
 
   /**
+   * 获取当前DataNode 的状态，可能的选项有DatanodeReportType.ALL, IVE 和DEAD。
    * Get a report on the system's current datanodes.
    * One DatanodeInfo object is returned for each DataNode.
    * Return live datanodes if type is LIVE; dead datanodes if type is DEAD;

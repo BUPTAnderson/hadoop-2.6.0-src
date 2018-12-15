@@ -91,7 +91,7 @@ public class FSImage implements Closeable {
    * The last transaction ID that was either loaded from an image
    * or loaded by loading edits files.
    */
-  protected long lastAppliedTxId = 0;
+  protected long lastAppliedTxId = 0; // 将解析的fsimage的txid设置给lastAppliedTxId， 加载完edits log之后lastAppliedTxId改为从editlog加载的最新的事物id
 
   final private Configuration conf;
 
@@ -114,7 +114,7 @@ public class FSImage implements Closeable {
    * Setup storage and initialize the edit log.
    *
    * @param conf Configuration
-   * @param imageDirs Directories the image can be stored in.
+   * @param imageDirs Directories the image can be stored in. 对应的是${dfs.namenode.name.dir}
    * @param editsDirs Directories the editlog can be stored in.
    * @throws IOException if directories are invalid.
    */
@@ -123,13 +123,13 @@ public class FSImage implements Closeable {
                     List<URI> editsDirs)
       throws IOException {
     this.conf = conf;
-
+    // storage用于管理NameNode的元数据持久化存储在本地文件系统的文件和目录
     storage = new NNStorage(conf, imageDirs, editsDirs);
     if(conf.getBoolean(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_KEY,
-                       DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) {
+                       DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) { // 默认值false
       storage.setRestoreFailedStorage(true);
     }
-
+    // 声明与此FSImage相关的EditLog对象(包括shared和local)
     this.editLog = new FSEditLog(conf, storage, editsDirs);
     
     archivalManager = new NNStorageRetentionManager(conf, storage, editLog);
@@ -141,13 +141,16 @@ public class FSImage implements Closeable {
     Preconditions.checkState(fileCount == 1,
         "FSImage.format should be called with an uninitialized namesystem, has " +
         fileCount + " files");
+    // 首次初始化，构造全新的namespaceInfo
     NamespaceInfo ns = NNStorage.newNamespaceInfo();
     LOG.info("Allocated new BlockPoolId: " + ns.getBlockPoolID());
     ns.clusterID = clusterId;
-    
+
+    // 格式化${dfs.namenode.name.dir}配置的每个目录， 即写入VERSIN文件和seen_txid文件
     storage.format(ns);
+    // 格式化journalnode中的文件
     editLog.formatNonFileJournals(ns);
-    saveFSImageInAllDirs(fsn, 0);
+    saveFSImageInAllDirs(fsn, 0); // 创建fsimage.ckpt_0000000000000000000, fsimage_0000000000000000000.md5文件, 已经将文件fsimage.ckpt_0000000000000000000改为fsimage_0000000000000000000
   }
   
   /**
@@ -199,7 +202,7 @@ public class FSImage implements Closeable {
     // check whether all is consistent before transitioning.
     Map<StorageDirectory, StorageState> dataDirStates = 
              new HashMap<StorageDirectory, StorageState>();
-    boolean isFormatted = recoverStorageDirs(startOpt, dataDirStates);
+    boolean isFormatted = recoverStorageDirs(startOpt, dataDirStates); // 初始化完后正常启动的话这里返回true
 
     if (LOG.isTraceEnabled()) {
       LOG.trace("Data dir states:\n  " +
@@ -241,9 +244,9 @@ public class FSImage implements Closeable {
           + " a new upgrade.");
     }
     
-    storage.processStartupOptionsForUpgrade(startOpt, layoutVersion);
+    storage.processStartupOptionsForUpgrade(startOpt, layoutVersion); // startOpt = UPGRADE/UPGRADEONLY，会执行该逻辑，这里正常启动的话不会执行该语句中的逻辑
 
-    // 2. Format unformatted dirs.
+    // 2. Format unformatted dirs. 格式化storage中storageDirs中未初始化的目录
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       StorageState curState = dataDirStates.get(sd);
@@ -277,7 +280,7 @@ public class FSImage implements Closeable {
     default:
       // just load the image
     }
-    
+    //对于启动参数regular的，会调用FsImage.loadFSImage()函数。其中recovery是null
     return loadFSImage(target, startOpt, recovery);
   }
   
@@ -305,7 +308,7 @@ public class FSImage implements Closeable {
       }
 
       try {
-        curState = sd.analyzeStorage(startOpt, storage);
+        curState = sd.analyzeStorage(startOpt, storage); // 初始化之后正常启动，curState的name是NORMAL
         // sd is locked but not opened
         switch(curState) {
         case NON_EXISTENT:
@@ -320,10 +323,10 @@ public class FSImage implements Closeable {
           sd.doRecover(curState);
         }
         if (curState != StorageState.NOT_FORMATTED 
-            && startOpt != StartupOption.ROLLBACK) {
+            && startOpt != StartupOption.ROLLBACK) { // 正常启动，满足if中的逻辑，执行如下逻辑
           // read and verify consistency with other directories
-          storage.readProperties(sd, startOpt);
-          isFormatted = true;
+          storage.readProperties(sd, startOpt); // sd对应的是${dfs.namenode.name.dir}
+          isFormatted = true; // isFormatted设置为true，表示已经初始化过了
         }
         if (startOpt == StartupOption.IMPORT && isFormatted)
           // import of a checkpoint is allowed only into empty image directories
@@ -333,9 +336,9 @@ public class FSImage implements Closeable {
         sd.unlock();
         throw ioe;
       }
-      dataDirStates.put(sd,curState);
+      dataDirStates.put(sd,curState); // 把当前检查完的目录以及目录的状态放入dataDirStates
     }
-    return isFormatted;
+    return isFormatted; // 返回isFormatted， 初始化完后正常启动的话这里返回true
   }
 
   /** Check if upgrade is in progress. */
@@ -561,7 +564,9 @@ public class FSImage implements Closeable {
 
   void openEditLogForWrite() throws IOException {
     assert editLog != null : "editLog must be initialized";
+    //这个函数负责检查transactionId的合法性，并打开edits_*****文件输出流
     editLog.openForWrite();
+    //既然上面已经打开了一个editlog输出流，那么需要把当前的transactionId写到seen_txid文件中。
     storage.writeTransactionIdFileToStorage(editLog.getCurSegmentTxId());
   }
   
@@ -594,8 +599,8 @@ public class FSImage implements Closeable {
       MetaRecoveryContext recovery)
       throws IOException {
     final boolean rollingRollback
-        = RollingUpgradeStartupOption.ROLLBACK.matches(startOpt);
-    final EnumSet<NameNodeFile> nnfs;
+        = RollingUpgradeStartupOption.ROLLBACK.matches(startOpt); // 正常启动，rollingRollback为false
+    final EnumSet<NameNodeFile> nnfs; // 下面会执行else中的逻辑初始化nnfs
     if (rollingRollback) {
       // if it is rollback of rolling upgrade, only load from the rollback image
       nnfs = EnumSet.of(NameNodeFile.IMAGE_ROLLBACK);
@@ -604,22 +609,23 @@ public class FSImage implements Closeable {
       nnfs = EnumSet.of(NameNodeFile.IMAGE, NameNodeFile.IMAGE_ROLLBACK);
     }
     final FSImageStorageInspector inspector = storage
-        .readAndInspectDirs(nnfs, startOpt);
+        .readAndInspectDirs(nnfs, startOpt); // 检查dir，创建inspector
 
-    isUpgradeFinalized = inspector.isUpgradeFinalized();
-    List<FSImageFile> imageFiles = inspector.getLatestImages();
+    //真正调用的是FSImageTransactionalStorageInspector.getLastestImage()获取最新的Image
+    isUpgradeFinalized = inspector.isUpgradeFinalized(); // 初始化后正常启动的话，isUpgradeFinalized为true
+    List<FSImageFile> imageFiles = inspector.getLatestImages(); // 从inspector的foundImages属性中获取出最新的fsimage，该属性在readAndInspectDirs方法中调用inspectStorageDirs方法时会被初始化
 
     StartupProgress prog = NameNode.getStartupProgress();
     prog.beginPhase(Phase.LOADING_FSIMAGE);
     File phaseFile = imageFiles.get(0).getFile();
     prog.setFile(Phase.LOADING_FSIMAGE, phaseFile.getAbsolutePath());
     prog.setSize(Phase.LOADING_FSIMAGE, phaseFile.length());
-    boolean needToSave = inspector.needToSave();
+    boolean needToSave = inspector.needToSave(); // 初始化后正常启动的话，这里的needToSave返回的是false
 
     Iterable<EditLogInputStream> editStreams = null;
-
+    // 获取editlog文件IO流，会将之前未关闭的edit文件关闭(即将edits_inprogress文件重命名为edits_begin_txid-end_txid, end_txid是该inprogress文件写入的最后一条记录的txid值)，执行完initEditLog方法fseditlog的状态是BETWEEN_LOG_SEGMENTS，表示editlog的前一个segment已关闭，新的还没开始
     initEditLog(startOpt);
-
+    // 正常启动的话满足if中的逻辑，执行if中的语句
     if (NameNodeLayoutVersion.supports(
         LayoutVersion.Feature.TXID_BASED_LAYOUT, getLayoutVersion())) {
       // If we're open for write, we're either non-HA or we're the active NN, so
@@ -630,13 +636,14 @@ public class FSImage implements Closeable {
       // For rollback in rolling upgrade, we need to set the toAtLeastTxId to
       // the txid right before the upgrade marker.  
       long toAtLeastTxId = editLog.isOpenForWrite() ? inspector
-          .getMaxSeenTxId() : 0;
+          .getMaxSeenTxId() : 0; // 格式化完第一次启动的话，此时editLog的状态是BETWEEN_LOG_SEGMENTS,isOpenForWrite返回true， 从inspector获取txid，由于此时还未有任何操作，inspector返回的txid为0，如果不是第一次启动，inspector返回的txid为seen_txid中的值
       if (rollingRollback) {
         // note that the first image in imageFiles is the special checkpoint
         // for the rolling upgrade
         toAtLeastTxId = imageFiles.get(0).getCheckpointTxId() + 2;
       }
-      editStreams = editLog.selectInputStreams(
+      // 选择从start_txid >= imageFile.getcheckpointTxId()+1 所对应的EditLog文件作为与当前FSImage文件merge的输入流，即这里editStreams是多个edit log文件输入流的集合// 格式化后第一次启动editStreams是空的
+      editStreams = editLog.selectInputStreams( // imageFiles.get(0).getCheckpointTxId() + 1获取的是最新的fsimage的txid + 1， 即fsimage的文件后缀的txid + 1， 说白了就是将fsimage文件的txid之后的所有edits log文件创建输入流加入到editStreams中
           imageFiles.get(0).getCheckpointTxId() + 1,
           toAtLeastTxId, recovery, false);
     } else {
@@ -657,18 +664,19 @@ public class FSImage implements Closeable {
     }
     
     FSImageFile imageFile = null;
+    // 调用loadFSImageFile()方法，加载fsimage文件
     for (int i = 0; i < imageFiles.size(); i++) {
       try {
         imageFile = imageFiles.get(i);
-        loadFSImageFile(target, recovery, imageFile, startOpt);
-        break;
+        loadFSImageFile(target, recovery, imageFile, startOpt); // 加载解析fsimage
+        break; // break保证解析完后跳出，即只解析一个fsimage，如果dfs.namenode.name.dir配置了多个目录，每个目录理论上保存了相同的fsimage，这样的话imageFiles又多个文件，这里可以保证有一个文件损坏的话解析另一个，同时保证成功解析完一个文件就跳出循环。
       } catch (IOException ioe) {
         LOG.error("Failed to load image from " + imageFile, ioe);
         target.clear();
         imageFile = null;
       }
     }
-    // Failed to load any images, error out
+    // Failed to load any images, error out 如果加载失败，则抛出异常
     if (imageFile == null) {
       FSEditLog.closeAllStreams(editStreams);
       throw new IOException("Failed to load an FSImage file!");
@@ -676,9 +684,10 @@ public class FSImage implements Closeable {
     prog.endPhase(Phase.LOADING_FSIMAGE);
     
     if (!rollingRollback) {
+      // 调用loadEdit()方法加载editStreams对应的editlogs(可能是多个edits log)解析到内存结构中， txnsAdvanced表示解析了多少条记录，如果是格式化后第一次启动，该值为0
       long txnsAdvanced = loadEdits(editStreams, target, startOpt, recovery);
       needToSave |= needsResaveBasedOnStaleCheckpoint(imageFile.getFile(),
-          txnsAdvanced);
+          txnsAdvanced); // //如果上一步merge了新的EditLog，就需要持久化到硬盘成新的FSImage。则needsResaveBasedOnStaleCheckpoint方法返回true
       if (RollingUpgradeStartupOption.DOWNGRADE.matches(startOpt)) {
         // rename rollback image if it is downgrade
         renameCheckpoint(NameNodeFile.IMAGE_ROLLBACK, NameNodeFile.IMAGE);
@@ -689,7 +698,7 @@ public class FSImage implements Closeable {
       rollingRollback(lastAppliedTxId + 1, imageFiles.get(0).getCheckpointTxId());
       needToSave = false;
     }
-    editLog.setNextTxId(lastAppliedTxId + 1);
+    editLog.setNextTxId(lastAppliedTxId + 1); // lastAppliedTxId是从editlog中解析出来的最新的txid
     return needToSave;
   }
 
@@ -715,15 +724,16 @@ public class FSImage implements Closeable {
   void loadFSImageFile(FSNamesystem target, MetaRecoveryContext recovery,
       FSImageFile imageFile, StartupOption startupOption) throws IOException {
     LOG.debug("Planning to load image :\n" + imageFile);
-    StorageDirectory sdForProperties = imageFile.sd;
+    StorageDirectory sdForProperties = imageFile.sd; // image文件对应的${dfs.namenode.name.dir}中的指定目录
     storage.readProperties(sdForProperties, startupOption);
-
+    // 根据namenode版本不同调用不同的加载方法， 对于2.6版本，调用第一个if中逻辑
     if (NameNodeLayoutVersion.supports(
         LayoutVersion.Feature.TXID_BASED_LAYOUT, getLayoutVersion())) {
       // For txid-based layout, we should have a .md5 file
-      // next to the image file
+      // next to the image file，格式化后第一次启动isRollingRollback是false
       boolean isRollingRollback = RollingUpgradeStartupOption.ROLLBACK
           .matches(startupOption);
+      // 调用loadFSImage， 加载解析fsimage
       loadFSImage(imageFile.getFile(), target, recovery, isRollingRollback);
     } else if (NameNodeLayoutVersion.supports(
         LayoutVersion.Feature.FSIMAGE_CHECKSUM, getLayoutVersion())) {
@@ -748,10 +758,10 @@ public class FSImage implements Closeable {
     Preconditions.checkState(getNamespaceID() != 0,
         "Must know namespace ID before initting edit log");
     String nameserviceId = DFSUtil.getNamenodeNameServiceId(conf);
-    if (!HAUtil.isHAEnabled(conf, nameserviceId)) {
+    if (!HAUtil.isHAEnabled(conf, nameserviceId)) { // nod-HA执行该逻辑
       // If this NN is not HA
-      editLog.initJournalsForWrite();
-      editLog.recoverUnclosedStreams();
+      editLog.initJournalsForWrite(); // 初始化editlog的journalSet，将editlog状态转变为BETWEEN_LOG_SEGMENTS
+      editLog.recoverUnclosedStreams(); // 遍历current目录下所有edits文件，找到edits_inprogress文件，将edits_inprogress文件重命名为edits_begin_txid-end_txid
     } else if (HAUtil.isHAEnabled(conf, nameserviceId)
         && (startOpt == StartupOption.UPGRADE
             || startOpt == StartupOption.UPGRADEONLY
@@ -772,7 +782,7 @@ public class FSImage implements Closeable {
       }
       editLog.recoverUnclosedStreams();
     } else {
-      // This NN is HA and we're not doing an upgrade.
+      // This NN is HA and we're not doing an upgrade. HA会执行该行逻辑// 初始化editlog的journalSet，将editlog状态转变为OPEN_FOR_READING
       editLog.initSharedJournalsForRead();
     }
   }
@@ -787,10 +797,10 @@ public class FSImage implements Closeable {
       File imageFile, long numEditsLoaded) {
     final long checkpointPeriod = conf.getLong(
         DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_PERIOD_KEY, 
-        DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_PERIOD_DEFAULT);
+        DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_PERIOD_DEFAULT); // 默认值3600
     final long checkpointTxnCount = conf.getLong(
         DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_TXNS_KEY, 
-        DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_TXNS_DEFAULT);
+        DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_TXNS_DEFAULT); // 默认值1000000
     long checkpointAge = Time.now() - imageFile.lastModified();
 
     return (checkpointAge > checkpointPeriod * 1000) ||
@@ -811,20 +821,23 @@ public class FSImage implements Closeable {
     LOG.debug("About to load edits:\n  " + Joiner.on("\n  ").join(editStreams));
     StartupProgress prog = NameNode.getStartupProgress();
     prog.beginPhase(Phase.LOADING_EDITS);
-    
+    // 记录命名空间中加载的最新的事务id，lastAppliedTxId对应的是解析完成的fsimage的txid，即表示已经把这个txid及其之前的操作都解析完了
     long prevLastAppliedTxId = lastAppliedTxId;  
-    try {    
+    try {
+      // 构造FSEditLogLoader对象，用于加载editlog文件
       FSEditLogLoader loader = new FSEditLogLoader(target, lastAppliedTxId);
       
-      // Load latest edits
+      // Load latest edits 遍历所有存储路径上editlog文件对应的输入流，格式化后第一次启动，editStream是空的；非格式化后第一次启动，editIn存储了各个edits log对应的输入流，并且输入流按照start_txid从小到大排序了
       for (EditLogInputStream editIn : editStreams) {
         LOG.info("Reading " + editIn + " expecting start txid #" +
               (lastAppliedTxId + 1));
         try {
+          // 调用loadFSEdits从某个存储路径上的editlog文件加载修改操作
           loader.loadFSEdits(editIn, lastAppliedTxId + 1, startOpt, recovery);
         } finally {
           // Update lastAppliedTxId even in case of error, since some ops may
           // have been successfully applied before the error.
+          // lastAppliedTxId改为从editlog加载的最新的事物id
           lastAppliedTxId = loader.getLastAppliedTxId();
         }
         // If we are in recovery mode, we may have skipped over some txids.
@@ -833,12 +846,13 @@ public class FSImage implements Closeable {
         }
       }
     } finally {
+      // 关闭所有editlog文件的输入流
       FSEditLog.closeAllStreams(editStreams);
       // update the counts
       updateCountForQuota(target.dir.rootDir);
     }
     prog.endPhase(Phase.LOADING_EDITS);
-    return lastAppliedTxId - prevLastAppliedTxId;
+    return lastAppliedTxId - prevLastAppliedTxId; // 格式化后第一次启动，lastAppliedTxId和prevLastAppliedTxId都是空的， prevLastAppliedTxId为最新的fsimage的txid，lastAppliedTxId解析完的edits log的最后一条记录的txid
   }
 
   /**
@@ -900,11 +914,13 @@ public class FSImage implements Closeable {
   private void loadFSImage(File imageFile, FSNamesystem target,
       MetaRecoveryContext recovery, boolean requireSameLayoutVersion)
       throws IOException {
+    // 获取md5值
     MD5Hash expectedMD5 = MD5FileUtils.readStoredMd5ForFile(imageFile);
     if (expectedMD5 == null) {
       throw new IOException("No MD5 file found corresponding to image file "
           + imageFile);
     }
+    // 继续调用loadFSImage，加载解析fsimage
     loadFSImage(imageFile, expectedMD5, target, recovery,
         requireSameLayoutVersion);
   }
@@ -920,7 +936,9 @@ public class FSImage implements Closeable {
     // information. Make sure the ID is properly set.
     target.setBlockPoolId(this.getBlockPoolID());
 
+    // 构造LoaderDelegator对象
     FSImageFormat.LoaderDelegator loader = FSImageFormat.newLoader(conf, target);
+    // 加载fsimage文件， 即通过protobuf反序列化解析fsimage文件，解析中会把解析到的数据设置到FSDirectory的inodeMap属性，设置INodeFile的blocks属性,设置BlockManager的blocksMap属性
     loader.load(curFile, requireSameLayoutVersion);
 
     // Check that the image digest we loaded matches up with what
@@ -935,7 +953,7 @@ public class FSImage implements Closeable {
 
     long txId = loader.getLoadedImageTxId();
     LOG.info("Loaded image for txid " + txId + " from " + curFile);
-    lastAppliedTxId = txId;
+    lastAppliedTxId = txId; // 将解析的fsimage的txid设置给lastAppliedTxId
     storage.setMostRecentCheckpointInfo(txId, curFile.lastModified());
   }
 
@@ -944,15 +962,17 @@ public class FSImage implements Closeable {
    */
   void saveFSImage(SaveNamespaceContext context, StorageDirectory sd,
       NameNodeFile dstType) throws IOException {
-    long txid = context.getTxId();
+    long txid = context.getTxId(); // 获取当前命名空间中记录的最新事物的txid
+    // fsimage文件, 比如：hadoop-name/current/fsimage.ckpt_0000000000000000065
     File newFile = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE_NEW, txid);
-    File dstFile = NNStorage.getStorageFile(sd, dstType, txid);
-    
+    // 目标fsimage文件， 比如: hadoop-name/current/fsimage_0000000000000000065
+    File dstFile = NNStorage.getStorageFile(sd, dstType, txid); // dstType是NameNodeFile.IMAGE
+    // FSImageFormatProtobuf.Saver负责保存fsimage, FSImageFormatProtobuf是一个工具类
     FSImageFormatProtobuf.Saver saver = new FSImageFormatProtobuf.Saver(context);
-    FSImageCompression compression = FSImageCompression.createCompression(conf);
-    saver.save(newFile, compression);
+    FSImageCompression compression = FSImageCompression.createCompression(conf); // 压缩类
+    saver.save(newFile, compression); // 调用Saver类保存fsimage文件， 即创建文件/Users/momo/software/hadoop-2.6.0/hadoop-name/current/fsimage.ckpt_0000000000000000000
     
-    MD5FileUtils.saveMD5File(dstFile, saver.getSavedDigest());
+    MD5FileUtils.saveMD5File(dstFile, saver.getSavedDigest()); // 保存MD5校验值， 即创建文件：fsimage_0000000000000000000.md5
     storage.setMostRecentCheckpointInfo(txid, Time.now());
   }
 
@@ -1001,7 +1021,7 @@ public class FSImage implements Closeable {
     @Override
     public void run() {
       try {
-        saveFSImage(context, sd, nnf);
+        saveFSImage(context, sd, nnf); // 保存fsimage文件
       } catch (SaveNamespaceCancelledException snce) {
         LOG.info("Cancelled image saving for " + sd.getRoot() +
             ": " + snce.getMessage());
@@ -1060,20 +1080,22 @@ public class FSImage implements Closeable {
     boolean editLogWasOpen = editLog.isSegmentOpen();
     
     if (editLogWasOpen) {
+      // 将当前edit_inprogress文件关闭并重命名, 最后editlog状态变为BETWEEN_LOG_SEGMENTS
       editLog.endCurrentLogSegment(true);
     }
     long imageTxId = getLastAppliedOrWrittenTxId();
     try {
-      saveFSImageInAllDirs(source, nnf, imageTxId, canceler);
+      // 调用saveFSImageInAllDirs方法将当前的命名空间保存到新的fsimage文件中
+      saveFSImageInAllDirs(source, nnf, imageTxId, canceler); // 触发命名空间的保存操作
       storage.writeAll();
     } finally {
       if (editLogWasOpen) {
-        editLog.startLogSegment(imageTxId + 1, true);
+        editLog.startLogSegment(imageTxId + 1, true); // 注意该方法是一个同步方法，创建新的inprogress文件：edits_inprogress_imageTxId+1, 并写入OP_START_LOG_SEGMENT，表示可以开始写入， fseditlog状态为IN_SEGMENT
         // Take this opportunity to note the current transaction.
         // Even if the namespace save was cancelled, this marker
         // is only used to determine what transaction ID is required
         // for startup. So, it doesn't hurt to update it unnecessarily.
-        storage.writeTransactionIdFileToStorage(imageTxId + 1);
+        storage.writeTransactionIdFileToStorage(imageTxId + 1); // 将imageTxId + 1写入seen_txid文件中
       }
     }
   }
@@ -1096,24 +1118,27 @@ public class FSImage implements Closeable {
     if (canceler == null) {
       canceler = new Canceler();
     }
+    // 构造命名空间操作的上下文
     SaveNamespaceContext ctx = new SaveNamespaceContext(
         source, txid, canceler);
     
     try {
       List<Thread> saveThreads = new ArrayList<Thread>();
-      // save images into current
+      // save images into current 在每一个保存路径上启动一个线程，该线程使用FSImageSaver类保存fsimage文件
       for (Iterator<StorageDirectory> it
              = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
         StorageDirectory sd = it.next();
+        // 核心逻辑在FSImageSaver的run方法中，实际就是创建fsimage.ckpt_txid和fsimage_txid.md5
         FSImageSaver saver = new FSImageSaver(ctx, sd, nnf);
         Thread saveThread = new Thread(saver, saver.toString());
         saveThreads.add(saveThread);
         saveThread.start();
       }
+      // 等待所有线程执行完毕
       waitForThreads(saveThreads);
       saveThreads.clear();
       storage.reportErrorsOnDirectories(ctx.getErrorSDs());
-  
+      // 保存文件失败则抛出异常
       if (storage.getNumStorageDirs(NameNodeDirType.IMAGE) == 0) {
         throw new IOException(
           "Failed to save in any storage directories while saving namespace.");
@@ -1123,16 +1148,16 @@ public class FSImage implements Closeable {
         ctx.checkCancelled(); // throws
         assert false : "should have thrown above!";
       }
-  
+      // 将fsimage.ckpt改名为fsimage
       renameCheckpoint(txid, NameNodeFile.IMAGE_NEW, nnf, false);
   
       // Since we now have a new checkpoint, we can clean up some
-      // old edit logs and checkpoints.
+      // old edit logs and checkpoints. 我们已经完成了fsimage的保存，那么可以将存储上的一部分editlog和fsimage删除
       purgeOldStorage(nnf);
     } finally {
       // Notify any threads waiting on the checkpoint to be canceled
       // that it is complete.
-      ctx.markComplete();
+      ctx.markComplete(); // 通知所有等待的线程
       ctx = null;
     }
     prog.endPhase(Phase.SAVING_CHECKPOINT);

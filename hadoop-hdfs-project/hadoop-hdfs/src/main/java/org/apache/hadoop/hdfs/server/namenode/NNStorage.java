@@ -149,7 +149,7 @@ public class NNStorage extends Storage implements Closeable,
   private HashMap<String, String> deprecatedProperties;
 
   /**
-   * Construct the NNStorage.
+   * Construct the NNStorage. fsimage和edits log配置的目录都由该类来管理
    * @param conf Namenode configuration.
    * @param imageDirs Directories the image can be stored in.
    * @param editsDirs Directories the editlog can be stored in.
@@ -545,8 +545,11 @@ public class NNStorage extends Storage implements Closeable,
   /** Create new dfs name directory.  Caution: this destroys all files
    * in this filesystem. */
   private void format(StorageDirectory sd) throws IOException {
+    // 如果${dfs.namenode.name.dir}存在，清空文件夹，如果文件夹不存在，则创建文件夹
     sd.clearDirectory(); // create currrent dir
+    // 写入VERSION文件
     writeProperties(sd);
+    // 写入seen_txid文件
     writeTransactionIdFile(sd, 0);
 
     LOG.info("Storage directory " + sd.getRoot()
@@ -557,6 +560,7 @@ public class NNStorage extends Storage implements Closeable,
    * Format all available storage directories.
    */
   public void format(NamespaceInfo nsInfo) throws IOException {
+    // 校验ayoutVersion， 要么为0，要么等于NAMENODE_LAYOUT_VERSION
     Preconditions.checkArgument(nsInfo.getLayoutVersion() == 0 ||
         nsInfo.getLayoutVersion() == HdfsConstants.NAMENODE_LAYOUT_VERSION,
         "Bad layout version: %s", nsInfo.getLayoutVersion());
@@ -566,12 +570,14 @@ public class NNStorage extends Storage implements Closeable,
     for (Iterator<StorageDirectory> it =
                            dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
+      // 格式化${dfs.namenode.name.dir}配置的每个目录， 即写入VERSIN文件和seen_txid文件
       format(sd);
     }
   }
   
   public static NamespaceInfo newNamespaceInfo()
       throws UnknownHostException {
+    // newNamespaceID()比如33357019, newClusterID比如"CID-86b11fc7-fd9e-46e3-a180-66cff68bb428"
     return new NamespaceInfo(newNamespaceID(), newClusterID(),
         newBlockPoolID(), 0L);
   }
@@ -616,7 +622,7 @@ public class NNStorage extends Storage implements Closeable,
     // Set Block pool ID in version with federation support
     if (NameNodeLayoutVersion.supports(
         LayoutVersion.Feature.FEDERATION, getLayoutVersion())) {
-      String sbpid = props.getProperty("blockpoolID");
+      String sbpid = props.getProperty("blockpoolID"); // 读取VERSION文件中的blockpoolID参数值
       setBlockPoolID(sd.getRoot(), sbpid);
     }
     setDeprecatedPropertiesForUpgrade(props);
@@ -624,7 +630,7 @@ public class NNStorage extends Storage implements Closeable,
 
   void readProperties(StorageDirectory sd, StartupOption startupOption)
       throws IOException {
-    Properties props = readPropertiesFile(sd.getVersionFile());
+    Properties props = readPropertiesFile(sd.getVersionFile()); // 读取sd对于文件夹下的current目录下的VERSION文件， 读取完VERSION的key/value后设置给当前的NNStorage对象
     if (HdfsServerConstants.RollingUpgradeStartupOption.ROLLBACK.matches
         (startupOption)) {
       int lv = Integer.parseInt(getProperty(props, sd, "layoutVersion"));
@@ -678,7 +684,7 @@ public class NNStorage extends Storage implements Closeable,
                            StorageDirectory sd
                            ) throws IOException {
     super.setPropertiesFromFields(props, sd);
-    // Set blockpoolID in version with federation support
+    // Set blockpoolID in version with federation support 设置blockpoolID属性
     if (NameNodeLayoutVersion.supports(
         LayoutVersion.Feature.FEDERATION, getLayoutVersion())) {
       props.setProperty("blockpoolID", blockpoolID);
@@ -687,7 +693,7 @@ public class NNStorage extends Storage implements Closeable,
   
   static File getStorageFile(StorageDirectory sd, NameNodeFile type, long imageTxId) {
     return new File(sd.getCurrentDir(),
-                    String.format("%s_%019d", type.getName(), imageTxId));
+                    String.format("%s_%019d", type.getName(), imageTxId)); // %019, 将整型数字打印19位，如果不足19位，用0补齐
   }
   
   /**
@@ -1009,7 +1015,7 @@ public class NNStorage extends Storage implements Closeable,
     // newest image file and edit file
     for (Iterator<StorageDirectory> it = dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
-      inspector.inspectDirectory(sd);
+      inspector.inspectDirectory(sd); // 依次检查sd对应的目录，如果是namenode启动调用到这里的话，sd对应的是${dfs.namenode.name.dir}配置的其中一个目录。检查的过程中会根据读取目录下的current/seen_txid里的txid，选择最大的设置给inspector的maxSeenTxId属性
     }
   }
 
@@ -1059,13 +1065,13 @@ public class NNStorage extends Storage implements Closeable,
     FSImageStorageInspector inspector;
     if (NameNodeLayoutVersion.supports(
         LayoutVersion.Feature.TXID_BASED_LAYOUT, getLayoutVersion())) {
-      inspector = new FSImageTransactionalStorageInspector(fileTypes);
+      inspector = new FSImageTransactionalStorageInspector(fileTypes); // 执行该行逻辑， 正常起的话，这里fileType包含IMAGE , IMAGE_ROLLBACK
     } else {
       inspector = new FSImagePreTransactionalStorageInspector();
     }
     
-    inspectStorageDirs(inspector);
-    return inspector;
+    inspectStorageDirs(inspector); // 检查目录， 检查完之后，inspector的needToSave = false, isUpgrageFinalized = true， foundImages队列里放在current目录下的fsimage文件，maxSeenTxId为current目录下的seen_txid里面存放的txid
+    return inspector; // 返回inspector
   }
 
   public NamespaceInfo getNamespaceInfo() {

@@ -58,14 +58,14 @@ public class PacketHeader {
       .setLastPacketInBlock(false)
       .setDataLen(0)
       .setSyncBlock(false)
-      .build().getSerializedSize();
+      .build().getSerializedSize(); // PacketHeader中HEADER的长度
   public static final int PKT_LENGTHS_LEN =
-      Ints.BYTES + Shorts.BYTES;
+      Ints.BYTES + Shorts.BYTES; // 一个Packet有PacketHeader + CHECKSUMS + DATA组成，PacketHeader由 PacketLength(4字节) + HeaderLength(2字节) + HEADER(变长)组成。这里PKT_MAX_HEADER_LEN即为PacketLength(4字节) + HeaderLength(2字节)
   public static final int PKT_MAX_HEADER_LEN =
       PKT_LENGTHS_LEN + MAX_PROTO_SIZE;
 
-  private int packetLen;
-  private PacketHeaderProto proto;
+  private int packetLen; // 一个packet中CHECKSUMS的长度+DATA的长度
+  private PacketHeaderProto proto; // 一个packet中HEADER反序列化后的对象
 
   public PacketHeader() {
   }
@@ -128,6 +128,7 @@ public class PacketHeader {
   public void setFieldsFromData(
       int packetLen, byte[] headerData) throws InvalidProtocolBufferException {
     this.packetLen = packetLen;
+    // 反序列化packet中的HEADER
     proto = PacketHeaderProto.parseFrom(headerData);
   }
   
@@ -192,10 +193,12 @@ public class PacketHeader {
    */
   public boolean sanityCheck(long lastSeqNo) {
     // We should only have a non-positive data length for the last packet
+    // 只有最后一个packet的DataLen为0
     if (proto.getDataLen() <= 0 && !proto.getLastPacketInBlock()) return false;
     // The last packet should not contain data
     if (proto.getLastPacketInBlock() && proto.getDataLen() != 0) return false;
     // Seqnos should always increase by 1 with each packet received
+    // 数据包在管道中的序列化
     if (proto.getSeqno() != lastSeqNo + 1) return false;
     return true;
   }

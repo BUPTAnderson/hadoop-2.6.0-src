@@ -261,7 +261,9 @@ public class BlockInfoUnderConstruction extends BlockInfo {
     if(getBlockId() != block.getBlockId())
       throw new IOException("Trying to commit inconsistent block: id = "
           + block.getBlockId() + ", expected id = " + getBlockId());
+    // 将当前数据块状态更改为COMMITTED
     blockUCState = BlockUCState.COMMITTED;
+    // 更新当前数据块的长度以及时间戳
     this.set(getBlockId(), block.getNumBytes(), block.getGenerationStamp());
     // Sort out invalid replicas.
     setGenerationStampAndVerifyReplicas(block.getGenerationStamp());
@@ -273,7 +275,9 @@ public class BlockInfoUnderConstruction extends BlockInfo {
    * make it primary.
    */
   public void initializeBlockRecovery(long recoveryId) {
+    // 将数据块状态更改为UNDER_RECOVERY
     setBlockUCState(BlockUCState.UNDER_RECOVERY);
+    // 数据块恢复时间戳
     blockRecoveryId = recoveryId;
     if (replicas.size() == 0) {
       NameNode.blockStateChangeLog.warn("BLOCK*"
@@ -294,6 +298,7 @@ public class BlockInfoUnderConstruction extends BlockInfo {
         replicas.get(i).setChosenAsPrimary(false);
       }
     }
+    // 遍历所有副本所在的Datanode，选取最近一次进行块汇报的Datanode作为主恢复节点
     long mostRecentLastUpdate = 0;
     ReplicaUnderConstruction primary = null;
     primaryNodeIndex = -1;
@@ -311,6 +316,7 @@ public class BlockInfoUnderConstruction extends BlockInfo {
       }
     }
     if (primary != null) {
+      // 向主恢复节点发送数据块恢复指令,这里只是调用主恢复节点(Datanode)对应的DatanodeDescriptor对象的addBlockToBeRecovered方法，将需要恢复的数据块加入到DatanodeDescriptor.recoverBlocks队列中，当该节点发送心跳时Namenode会取出这些数据块发送数据块恢复指令给该节点
       primary.getExpectedStorageLocation().getDatanodeDescriptor().addBlockToBeRecovered(this);
       primary.setChosenAsPrimary(true);
       NameNode.blockStateChangeLog.info("BLOCK* " + this
@@ -332,7 +338,7 @@ public class BlockInfoUnderConstruction extends BlockInfo {
       } else if (expectedLocation != null &&
                  expectedLocation.getDatanodeDescriptor() ==
                      storage.getDatanodeDescriptor()) {
-
+        // 汇报过了的block信息存储在同一个DN的不同目录下面，则吧保存的信息删除，然后添加汇报过了的block信息
         // The Datanode reported that the block is on a different storage
         // than the one chosen by BlockPlacementPolicy. This can occur as
         // we allow Datanodes to choose the target storage. Update our

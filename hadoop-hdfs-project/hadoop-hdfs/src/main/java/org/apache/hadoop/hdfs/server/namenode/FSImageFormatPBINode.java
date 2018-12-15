@@ -95,7 +95,7 @@ public final class FSImageFormatPBINode {
   public final static class Loader {
     public static PermissionStatus loadPermission(long id,
         final String[] stringTable) {
-      short perm = (short) (id & ((1 << GROUP_STRID_OFFSET) - 1));
+      short perm = (short) (id & ((1 << GROUP_STRID_OFFSET) - 1)); // 权限是8进制表示，这里是把8进制换算成了10进制，比如perm是493，对应的权限是755
       int gsid = (int) ((id >> GROUP_STRID_OFFSET) & USER_GROUP_STRID_MASK);
       int usid = (int) ((id >> USER_STRID_OFFSET) & USER_GROUP_STRID_MASK);
       return new PermissionStatus(stringTable[usid], stringTable[gsid],
@@ -171,7 +171,7 @@ public final class FSImageFormatPBINode {
       final BlockInfo[] blocks = file.getBlocks();
       if (blocks != null) {
         for (int i = 0; i < blocks.length; i++) {
-          file.setBlock(i, bm.addBlockCollection(blocks[i], file));
+          file.setBlock(i, bm.addBlockCollection(blocks[i], file)); // addBlockCollection方法设置了BlockInfo的bc字段
         }
       }
     }
@@ -190,16 +190,18 @@ public final class FSImageFormatPBINode {
       final List<INodeReference> refList = parent.getLoaderContext()
           .getRefList();
       while (true) {
+        // DirEntry存储了节点的关系，包含一个父节点和多个子节点的block id，显然父节点肯定是一个INodeDirectory
         INodeDirectorySection.DirEntry e = INodeDirectorySection.DirEntry
             .parseDelimitedFrom(in);
         // note that in is a LimitedInputStream
         if (e == null) {
           break;
         }
+        // 从blockMap中根据block id获取父节点对应的INode(INodeDirectory)
         INodeDirectory p = dir.getInode(e.getParent()).asDirectory();
         for (long id : e.getChildrenList()) {
-          INode child = dir.getInode(id);
-          addToParent(p, child);
+          INode child = dir.getInode(id); // 根据子节点的block id从blockMap中获取子节点对应的INode
+          addToParent(p, child); // 将child添加到p的子节点中，这个操作实际上也是在构建FSDirectory.rootDir整个目录树
         }
         for (int refId : e.getRefChildrenList()) {
           INodeReference ref = refList.get(refId);
@@ -212,13 +214,13 @@ public final class FSImageFormatPBINode {
       INodeSection s = INodeSection.parseDelimitedFrom(in);
       fsn.resetLastInodeId(s.getLastInodeId());
       LOG.info("Loading " + s.getNumInodes() + " INodes.");
-      for (int i = 0; i < s.getNumInodes(); ++i) {
+      for (int i = 0; i < s.getNumInodes(); ++i) { // 格式化后第一次启动，还没有在集群上创建任何东西，这时s.getNumInodes()为1， 即ROOT_INODE
         INodeSection.INode p = INodeSection.INode.parseDelimitedFrom(in);
         if (p.getId() == INodeId.ROOT_INODE_ID) {
-          loadRootINode(p);
+          loadRootINode(p); // 加载根节点
         } else {
-          INode n = loadINode(p);
-          dir.addToInodeMap(n);
+          INode n = loadINode(p); // 加载普通节点
+          dir.addToInodeMap(n); // 将INode添加到FSDirectory.inodeMap中
         }
       }
     }
@@ -249,12 +251,12 @@ public final class FSImageFormatPBINode {
             + "name before upgrading to this release.");
       }
       // NOTE: This does not update space counts for parents
-      if (!parent.addChild(child)) {
+      if (!parent.addChild(child)) { // 将child添加到parent的子节点队列中
         return;
       }
       dir.cacheName(child);
 
-      if (child.isFile()) {
+      if (child.isFile()) { // 更新，会设置BlockInfo的bc字段
         updateBlocksMap(child.asFile(), fsn.getBlockManager());
       }
     }
@@ -275,6 +277,7 @@ public final class FSImageFormatPBINode {
 
     private INodeFile loadINodeFile(INodeSection.INode n) {
       assert n.getType() == INodeSection.INode.Type.FILE;
+      // 从fsimage中获取INodeFile信息
       INodeSection.INodeFile f = n.getFile();
       List<BlockProto> bp = f.getBlocksList();
       short replication = (short) f.getReplication();
@@ -282,6 +285,7 @@ public final class FSImageFormatPBINode {
 
       BlockInfo[] blocks = new BlockInfo[bp.size()];
       for (int i = 0, e = bp.size(); i < e; ++i) {
+        // 注意这里并没有设置BlockInfo的bc字段，该字段是在解析节点关系的时候设置的
         blocks[i] = new BlockInfo(PBHelper.convert(bp.get(i)), replication);
       }
       final PermissionStatus permissions = loadPermission(f.getPermission(),
@@ -302,13 +306,14 @@ public final class FSImageFormatPBINode {
             loadXAttrs(f.getXAttrs(), state.getStringTable())));
       }
 
-      // under-construction information
+      // under-construction information 如果当前INodeFile处于构建状态，则将最后一个数据块设置为构建状态
       if (f.hasFileUC()) {
         INodeSection.FileUnderConstructionFeature uc = f.getFileUC();
+        // 给INodeFile添加FileUnderConstructionFeature特性
         file.toUnderConstruction(uc.getClientName(), uc.getClientMachine());
         if (blocks.length > 0) {
           BlockInfo lastBlk = file.getLastBlock();
-          // replace the last block of file
+          // replace the last block of file 设置最后一个数据块为BlockInfoUnderConstruction
           file.setBlock(file.numBlocks() - 1, new BlockInfoUnderConstruction(
               lastBlk, replication));
         }
@@ -485,13 +490,15 @@ public final class FSImageFormatPBINode {
 
     void serializeINodeSection(OutputStream out) throws IOException {
       INodeMap inodesMap = fsn.dir.getINodeMap();
-
+      // 首先构造一个INodeSection对象，记录文件系统目录树中保存的最后一个inode的inodeid，以及命名空间中所有inode的个数。
       INodeSection.Builder b = INodeSection.newBuilder()
           .setLastInodeId(fsn.getLastInodeId()).setNumInodes(inodesMap.size());
       INodeSection s = b.build();
+      // 序列化至输出流
       s.writeDelimitedTo(out);
 
       int i = 0;
+      // 迭代处理所有inode，调用save方法将inode信息保存到fsimage文件中。
       Iterator<INodeWithAdditionalFields> iter = inodesMap.getMapIterator();
       while (iter.hasNext()) {
         INodeWithAdditionalFields n = iter.next();
@@ -501,6 +508,7 @@ public final class FSImageFormatPBINode {
           context.checkCancelled();
         }
       }
+      // 调用commitSection方法在FileSummary中写入inode section
       parent.commitSection(summary, FSImageFormatProtobuf.SectionName.INODE);
     }
 
@@ -519,6 +527,7 @@ public final class FSImageFormatPBINode {
     }
 
     private void save(OutputStream out, INode n) throws IOException {
+      // 更加目录文件符号链接调用不同的重载方法
       if (n.isDirectory()) {
         save(out, n.asDirectory());
       } else if (n.isFile()) {
@@ -538,11 +547,11 @@ public final class FSImageFormatPBINode {
 
     private void save(OutputStream out, INodeFile n) throws IOException {
       INodeSection.INodeFile.Builder b = buildINodeFile(n,
-          parent.getSaverContext());
+          parent.getSaverContext()); // 保存INodeFile的级别信息
 
       if (n.getBlocks() != null) {
         for (Block block : n.getBlocks()) {
-          b.addBlocks(PBHelper.convert(block));
+          b.addBlocks(PBHelper.convert(block)); // 保存每一个block的信息，包括：BlockId、GenStamp、NumBytes
         }
       }
 

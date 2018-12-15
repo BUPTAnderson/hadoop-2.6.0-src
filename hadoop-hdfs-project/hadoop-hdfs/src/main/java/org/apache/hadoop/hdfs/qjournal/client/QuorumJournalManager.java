@@ -113,11 +113,12 @@ public class QuorumJournalManager implements JournalManager {
     this.conf = conf;
     this.uri = uri;
     this.nsInfo = nsInfo;
+    // 构造AsyncLoggerSet对象，维护与集群中所有JournalNode之间的连接
     this.loggers = new AsyncLoggerSet(createLoggers(loggerFactory));
     this.connectionFactory = URLConnectionFactory
         .newDefaultURLConnectionFactory(conf);
 
-    // Configure timeouts.
+    // Configure timeouts. 配置各种超时时间
     this.startSegmentTimeoutMs = conf.getInt(
         DFSConfigKeys.DFS_QJOURNAL_START_SEGMENT_TIMEOUT_KEY,
         DFSConfigKeys.DFS_QJOURNAL_START_SEGMENT_TIMEOUT_DEFAULT);

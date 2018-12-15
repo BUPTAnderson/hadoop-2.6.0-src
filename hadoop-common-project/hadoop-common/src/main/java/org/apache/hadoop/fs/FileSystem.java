@@ -174,7 +174,7 @@ public abstract class FileSystem extends Configured implements Closeable {
    * @return the uri of the default filesystem
    */
   public static URI getDefaultUri(Configuration conf) {
-    return URI.create(fixName(conf.get(FS_DEFAULT_NAME_KEY, DEFAULT_FS)));
+    return URI.create(fixName(conf.get(FS_DEFAULT_NAME_KEY, DEFAULT_FS))); // "fs.defaultFS"是旧的参数，对应的新的的key："fs.default.name"
   }
 
   /** Set the default filesystem URI in a configuration.
@@ -202,7 +202,7 @@ public abstract class FileSystem extends Configured implements Closeable {
     statistics = getStatistics(name.getScheme(), getClass());    
     resolveSymlinks = conf.getBoolean(
         CommonConfigurationKeys.FS_CLIENT_RESOLVE_REMOTE_SYMLINKS_KEY,
-        CommonConfigurationKeys.FS_CLIENT_RESOLVE_REMOTE_SYMLINKS_DEFAULT);
+        CommonConfigurationKeys.FS_CLIENT_RESOLVE_REMOTE_SYMLINKS_DEFAULT); // 默认值为true
   }
 
   /**
@@ -338,7 +338,7 @@ public abstract class FileSystem extends Configured implements Closeable {
    */
   public static LocalFileSystem getLocal(Configuration conf)
     throws IOException {
-    return (LocalFileSystem)get(LocalFileSystem.NAME, conf);
+    return (LocalFileSystem)get(LocalFileSystem.NAME, conf); // 实际是通过反射构造了一个LocalFileSystem对象
   }
 
   /** Returns the FileSystem for this URI's scheme and authority.  The scheme
@@ -347,8 +347,8 @@ public abstract class FileSystem extends Configured implements Closeable {
    * The entire URI is passed to the FileSystem instance's initialize method.
    */
   public static FileSystem get(URI uri, Configuration conf) throws IOException {
-    String scheme = uri.getScheme();
-    String authority = uri.getAuthority();
+    String scheme = uri.getScheme(); // hdfs
+    String authority = uri.getAuthority(); // 比如 localhost:9000
 
     if (scheme == null && authority == null) {     // use default FS
       return get(conf);
@@ -362,12 +362,12 @@ public abstract class FileSystem extends Configured implements Closeable {
       }
     }
     
-    String disableCacheName = String.format("fs.%s.impl.disable.cache", scheme);
-    if (conf.getBoolean(disableCacheName, false)) {
+    String disableCacheName = String.format("fs.%s.impl.disable.cache", scheme); // fs.hdfs.impl.disable.cache
+    if (conf.getBoolean(disableCacheName, false)) { // 默认值false
       return createFileSystem(uri, conf);
     }
 
-    return CACHE.get(uri, conf);
+    return CACHE.get(uri, conf); // 从CACHE中获取
   }
 
   /**
@@ -763,6 +763,7 @@ public abstract class FileSystem extends Configured implements Closeable {
    * @param f the file to open
    */
   public FSDataInputStream open(Path f) throws IOException {
+    // 调用实现类的open方法，比如调用DistributedFileSystem.open方法，第二个参数是bufferSize，默认值是4096,显示可设置为4MB
     return open(f, getConf().getInt("io.file.buffer.size", 4096));
   }
 
@@ -2558,42 +2559,42 @@ public abstract class FileSystem extends Configured implements Closeable {
 
   private static void loadFileSystems() {
     synchronized (FileSystem.class) {
-      if (!FILE_SYSTEMS_LOADED) {
-        ServiceLoader<FileSystem> serviceLoader = ServiceLoader.load(FileSystem.class);
+      if (!FILE_SYSTEMS_LOADED) { // FILE_SYSTEMS_LOADED为false，执行下面逻辑, 即通过ServiceLoader去加载 resources/META-INF/services/下文件org.apache.hadoop.fs.FileSystem文件里面配置的实现类，
+        ServiceLoader<FileSystem> serviceLoader = ServiceLoader.load(FileSystem.class); // 这里要注意的是，会去classpath下所有的jar下的META-INF/services/下文件org.apache.hadoop.fs.FileSystem文件查找类，所以会加载hadoop-common和hadoop-hdfs下的org.apache.hadoop.fs.FileSystem文件，会的到9个实现类
         for (FileSystem fs : serviceLoader) {
-          SERVICE_FILE_SYSTEMS.put(fs.getScheme(), fs.getClass());
+          SERVICE_FILE_SYSTEMS.put(fs.getScheme(), fs.getClass()); // 将各个实现类对应的Class实例保存到SERVICE_FILE_SYSTEMS这个map中
         }
-        FILE_SYSTEMS_LOADED = true;
+        FILE_SYSTEMS_LOADED = true; // 加载完设置FILE_SYSTEMS_LOADED为true
       }
     }
   }
 
   public static Class<? extends FileSystem> getFileSystemClass(String scheme,
       Configuration conf) throws IOException {
-    if (!FILE_SYSTEMS_LOADED) {
+    if (!FILE_SYSTEMS_LOADED) { // FILE_SYSTEMS_LOADED为false，执行loadFileSystems
       loadFileSystems();
     }
     Class<? extends FileSystem> clazz = null;
     if (conf != null) {
-      clazz = (Class<? extends FileSystem>) conf.getClass("fs." + scheme + ".impl", null);
+      clazz = (Class<? extends FileSystem>) conf.getClass("fs." + scheme + ".impl", null); // 默认情况下，clazz为null
     }
     if (clazz == null) {
-      clazz = SERVICE_FILE_SYSTEMS.get(scheme);
+      clazz = SERVICE_FILE_SYSTEMS.get(scheme); // SERVICE_FILE_SYSTEMS中hdfs对应的Class实例，org.apache.hadoop.hdfs.DistributedFileSystem
     }
     if (clazz == null) {
       throw new IOException("No FileSystem for scheme: " + scheme);
     }
-    return clazz;
+    return clazz; // 返回
   }
 
   private static FileSystem createFileSystem(URI uri, Configuration conf
       ) throws IOException {
-    Class<?> clazz = getFileSystemClass(uri.getScheme(), conf);
+    Class<?> clazz = getFileSystemClass(uri.getScheme(), conf); // 获取Class类
     if (clazz == null) {
       throw new IOException("No FileSystem for scheme: " + uri.getScheme());
     }
-    FileSystem fs = (FileSystem)ReflectionUtils.newInstance(clazz, conf);
-    fs.initialize(uri, conf);
+    FileSystem fs = (FileSystem)ReflectionUtils.newInstance(clazz, conf); // 通过反射构造FileSystem对象
+    fs.initialize(uri, conf); // 调用DistributedFileSystem的initialize方法进行初始化
     return fs;
   }
 
@@ -2609,7 +2610,7 @@ public abstract class FileSystem extends Configured implements Closeable {
 
     FileSystem get(URI uri, Configuration conf) throws IOException{
       Key key = new Key(uri, conf);
-      return getInternal(uri, conf, key);
+      return getInternal(uri, conf, key); // 继续调用
     }
 
     /** The objects inserted into the cache using this method are all unique */
@@ -2621,14 +2622,14 @@ public abstract class FileSystem extends Configured implements Closeable {
     private FileSystem getInternal(URI uri, Configuration conf, Key key) throws IOException{
       FileSystem fs;
       synchronized (this) {
-        fs = map.get(key);
+        fs = map.get(key); // 初次调用，fs为null
       }
       if (fs != null) {
         return fs;
       }
-
+      // 创建fs
       fs = createFileSystem(uri, conf);
-      synchronized (this) { // refetch the lock again
+      synchronized (this) { // refetch the lock again ,这里实际是考虑单例
         FileSystem oldfs = map.get(key);
         if (oldfs != null) { // a file system is created while lock is releasing
           fs.close(); // close the new file system
@@ -2642,7 +2643,7 @@ public abstract class FileSystem extends Configured implements Closeable {
         }
         fs.key = key;
         map.put(key, fs);
-        if (conf.getBoolean("fs.automatic.close", true)) {
+        if (conf.getBoolean("fs.automatic.close", true)) { // 是否自动关闭fs对象，默认值为true，加入到toAutoClose中
           toAutoClose.add(key);
         }
         return fs;
@@ -3207,7 +3208,7 @@ public abstract class FileSystem extends Configured implements Closeable {
    */
   public static synchronized 
   Statistics getStatistics(String scheme, Class<? extends FileSystem> cls) {
-    Statistics result = statisticsTable.get(cls);
+    Statistics result = statisticsTable.get(cls); // 初次调用返回null
     if (result == null) {
       result = new Statistics(scheme);
       statisticsTable.put(cls, result);

@@ -48,6 +48,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * This class manages an instance of {@link BPServiceActor} for each NN,
  * and delegates calls to both NNs. 
  * It also maintains the state about which of the NNs is considered active.
+ * DataNode上每个块池或命名空间对应的一个实例，它处理该命名空间到对应活跃或备份状态NameNode的心跳。
+ * 这个类管理每个NameNode的一个BPServiceActor实例，在两个NanmeNode之间调用。
+ * 它也维护了哪个NameNode是active状态。
  */
 @InterfaceAudience.Private
 class BPOfferService {
@@ -57,6 +60,8 @@ class BPOfferService {
    * Information about the namespace that this service
    * is registering with. This is assigned after
    * the first phase of the handshake.
+   * 该服务登记的命名空间信息。第一阶段握手即被分配。
+   * NamespaceInfo中有个blockPoolID变量，显示了NameSpace与blockPool是一对一的关系
    */
   NamespaceInfo bpNSInfo;
 
@@ -64,22 +69,25 @@ class BPOfferService {
    * The registration information for this block pool.
    * This is assigned after the second phase of the
    * handshake.
+   * 块池的注册信息，在第二阶段握手被分配
    */
   volatile DatanodeRegistration bpRegistration;
   
-  private final DataNode dn;
+  private final DataNode dn; // 服务所在DataNode节点
 
   /**
    * A reference to the BPServiceActor associated with the currently
    * ACTIVE NN. In the case that all NameNodes are in STANDBY mode,
    * this can be null. If non-null, this must always refer to a member
    * of the {@link #bpServices} list.
+   * 与当前活跃NameNode相关联的BPServiceActor引用
    */
   private BPServiceActor bpServiceToActive = null;
   
   /**
    * The list of all actors for namenodes in this nameservice, regardless
    * of their active or standby states.
+   * 命名服务对应的所有NameNode的BPServiceActor实例列表，不管NameNode是活跃的还是备份的
    */
   private final List<BPServiceActor> bpServices =
     new CopyOnWriteArrayList<BPServiceActor>();
@@ -90,13 +98,17 @@ class BPOfferService {
    * is more recent than the previous value. This allows us to detect
    * split-brain scenarios in which a prior NN is still asserting its
    * ACTIVE state but with a too-low transaction ID. See HDFS-2627
-   * for details. 
+   * for details.
+   * 每次我们接收到一个NameNode要求成为活跃的心跳，都会在这里记录那个NameNode最近的事务ID，只要它
+   * 比之前的那个值大。这要求我们去检测裂脑的情景，比如一个之前的NameNode主张保持着活跃状态，但还是使用了较低的事务ID。
    */
   private long lastActiveClaimTxId = -1;
-
+  // 读写锁mReadWriteLock
   private final ReentrantReadWriteLock mReadWriteLock =
       new ReentrantReadWriteLock();
+  // mReadWriteLock上的读锁mReadLock
   private final Lock mReadLock  = mReadWriteLock.readLock();
+  // mReadWriteLock上的写锁mWriteLock
   private final Lock mWriteLock = mReadWriteLock.writeLock();
 
   // utility methods to acquire and release read lock and write lock
@@ -122,6 +134,7 @@ class BPOfferService {
     this.dn = dn;
 
     for (InetSocketAddress addr : nnAddrs) {
+      // 为每个namenode创建对应的BPServiceActor线程，BPOfferService通过bpServices维护同一个namespace下各namenode对应的BPServiceActor。
       this.bpServices.add(new BPServiceActor(addr, this));
     }
   }
@@ -132,7 +145,7 @@ class BPOfferService {
       oldAddrs.add(actor.getNNSocketAddress());
     }
     Set<InetSocketAddress> newAddrs = Sets.newHashSet(addrs);
-    
+    // 实际目前还不支持，比如只有一个namenode，正在运行，现在又增加了一个namenode，这个新增加的namenode是无法加入的。
     if (!Sets.symmetricDifference(oldAddrs, newAddrs).isEmpty()) {
       // Keep things simple for now -- we can implement this at a later date.
       throw new IOException(
@@ -217,6 +230,7 @@ class BPOfferService {
   void reportBadBlocks(ExtendedBlock block,
                        String storageUuid, StorageType storageType) {
     checkBlock(block);
+    // 遍历BPServiceActor， 在这些对象上调用对应的reportBadBlocks方法
     for (BPServiceActor actor : bpServices) {
       actor.reportBadBlocks(block, storageUuid, storageType);
     }
@@ -225,7 +239,7 @@ class BPOfferService {
   /*
    * Informing the name node could take a long long time! Should we wait
    * till namenode is informed before responding with success to the
-   * client? For now we don't.
+   * client? For now we don't. 通知namenode，datanode接收到了新的数据块
    */
   void notifyNamenodeReceivedBlock(
       ExtendedBlock block, String delHint, String storageUuid) {
@@ -233,8 +247,8 @@ class BPOfferService {
     ReceivedDeletedBlockInfo bInfo = new ReceivedDeletedBlockInfo(
         block.getLocalBlock(),
         ReceivedDeletedBlockInfo.BlockStatus.RECEIVED_BLOCK,
-        delHint);
-
+        delHint); // 收到数据块（增加）与删除数据块（减少）是一起汇报的，都构造为ReceivedDeletedBlockInfo对象
+    // 每个BPServiceActor都要向自己负责的namenode发送报告
     for (BPServiceActor actor : bpServices) {
       actor.notifyNamenodeBlock(bInfo, storageUuid, true);
     }
@@ -303,7 +317,9 @@ class BPOfferService {
   void verifyAndSetNamespaceInfo(NamespaceInfo nsInfo) throws IOException {
     writeLock();
     try {
+      // 初次调用，bpNSInfo为null
       if (this.bpNSInfo == null) {
+        // 初始化bpNSInfo，nsInfo是第一次握手从namenode返回的
         this.bpNSInfo = nsInfo;
         boolean success = false;
 
@@ -311,6 +327,7 @@ class BPOfferService {
         // The DN can now initialize its local storage if we are the
         // first BP to handshake, etc.
         try {
+          // 这时我们已经知道namespace Id, 初始化当前bpOfferService对应块池在datanode的本地存储, 各个目录的创建， 从这里可知，不同的块池blockpool是分开初始化化的，不同的块池对应不同的BPOfferService，不同的BPOfferService都会执行下面的语句初始化自己对应的块池
           dn.initBlockPool(this);
           success = true;
         } finally {
@@ -318,10 +335,12 @@ class BPOfferService {
             // The datanode failed to initialize the BP. We need to reset
             // the namespace info so that other BPService actors still have
             // a chance to set it, and re-initialize the datanode.
+            // 如果初始化失败，则将bpNSInfo置为空，等待下一个Namenode的响应
             this.bpNSInfo = null;
           }
         }
-      } else {
+      } else { // 两个BPServiceActor对应一个BPOfferService，进入else说明在当前BPServiceActor调用该方法前，另一个BPServiceActor已经调用过这个方法了。
+        // 如果bpNSInfo不为空，则证明命名空间中定义的另一个Namenode已经提前注册并且初始化了本地存储，这时只需要将当前注册信息与已有的注册信息比较，确认BlockPoolID,NamespaceID,ClusterID字段值相同即可
         checkNSEquality(bpNSInfo.getBlockPoolID(), nsInfo.getBlockPoolID(),
             "Blockpool ID");
         checkNSEquality(bpNSInfo.getNamespaceID(), nsInfo.getNamespaceID(),
@@ -343,13 +362,13 @@ class BPOfferService {
       DatanodeRegistration reg) throws IOException {
     writeLock();
     try {
-      if (bpRegistration != null) {
+      if (bpRegistration != null) { // 初次调用bpRegistration是null，执行else中的逻辑, 因为有两个BPServiceActor都会调用registrationSucceeded方法，所以第二个BPServiceActor调用这个方法的时候bpRegistration不为null，这时候比较和第一个BPServiceActor获取的bpRegistration是否一致
         checkNSEquality(bpRegistration.getStorageInfo().getNamespaceID(),
             reg.getStorageInfo().getNamespaceID(), "namespace ID");
         checkNSEquality(bpRegistration.getStorageInfo().getClusterID(),
             reg.getStorageInfo().getClusterID(), "cluster ID");
       } else {
-        bpRegistration = reg;
+        bpRegistration = reg; // 把从namenode注册返回的reg赋值给bpRegistration
       }
 
       dn.bpRegistrationSucceeded(bpRegistration, getBlockPoolId());
@@ -400,7 +419,7 @@ class BPOfferService {
       }
 
       bpServices.remove(actor);
-
+      // 当bpServices为空时，调用datanode的shutdownBlockPool方法
       if (bpServices.isEmpty()) {
         dn.shutdownBlockPool(this);
       }
@@ -492,17 +511,17 @@ class BPOfferService {
       NNHAStatusHeartbeat nnHaState) {
     writeLock();
     try {
-      final long txid = nnHaState.getTxId();
-
+      final long txid = nnHaState.getTxId(); // namenode携带的txid
+      // 当前namenode是否声明为active namenode
       final boolean nnClaimsActive =
           nnHaState.getState() == HAServiceState.ACTIVE;
-      final boolean bposThinksActive = bpServiceToActive == actor;
-      final boolean isMoreRecentClaim = txid > lastActiveClaimTxId;
-
+      final boolean bposThinksActive = bpServiceToActive == actor; // BPOfferService是否认为当前Namenode为active namenode， bpServiceToActive首次调用时是null
+      final boolean isMoreRecentClaim = txid > lastActiveClaimTxId; // 当前namenode携带的txid是否大于原active namenode携带的txid， lastActiveClaimTxId初始值是-1
+      // 原来的standby namenode声明自己为active namenode， 发生状态切换
       if (nnClaimsActive && !bposThinksActive) {
         LOG.info("Namenode " + actor + " trying to claim ACTIVE state with " +
             "txid=" + txid);
-        if (!isMoreRecentClaim) {
+        if (!isMoreRecentClaim) { // 当前namenode 携带的txid小于原active namenode的txid，也就是有两个namenode声明自己为active， 但是当前namenode的请求过时， 对于过时的请求，直接忽略
           // Split-brain scenario - an NN is trying to claim active
           // state when a different NN has already claimed it with a higher
           // txid.
@@ -510,21 +529,21 @@ class BPOfferService {
               txid + " but there was already a more recent claim at txid=" +
               lastActiveClaimTxId);
           return;
-        } else {
-          if (bpServiceToActive == null) {
+        } else { // 当前的请求是最新的请求
+          if (bpServiceToActive == null) { // BPOfferService还没有保存active namenode
             LOG.info("Acknowledging ACTIVE Namenode " + actor);
           } else {
             LOG.info("Namenode " + actor + " taking over ACTIVE state from " +
                 bpServiceToActive + " at higher txid=" + txid);
           }
-          bpServiceToActive = actor;
+          bpServiceToActive = actor; // 将bpServiceToActive指向当前Namenode对应的BPServiceActor
         }
-      } else if (!nnClaimsActive && bposThinksActive) {
+      } else if (!nnClaimsActive && bposThinksActive) { // 原来active状态的namenode现在声明自己为standby，则直接将bpServiceToActive赋值为null
         LOG.info("Namenode " + actor + " relinquishing ACTIVE state with " +
             "txid=" + nnHaState.getTxId());
         bpServiceToActive = null;
       }
-
+      // 更新lastActiveClaimTxId
       if (bpServiceToActive == actor) {
         assert txid >= lastActiveClaimTxId;
         lastActiveClaimTxId = txid;
@@ -582,6 +601,7 @@ class BPOfferService {
     }
   }
 
+  // 处理namenode指令
   boolean processCommandFromActor(DatanodeCommand cmd,
       BPServiceActor actor) throws IOException {
     assert bpServices.contains(actor);
@@ -592,7 +612,7 @@ class BPOfferService {
      * Datanode Registration can be done asynchronously here. No need to hold
      * the lock. for more info refer HDFS-5014
      */
-    if (DatanodeProtocol.DNA_REGISTER == cmd.getAction()) {
+    if (DatanodeProtocol.DNA_REGISTER == cmd.getAction()) { // 如果Namenode返回的指令要求Datanode重新注册，则调用reRegister方法
       // namenode requested a registration - at start or if NN lost contact
       // Just logging the claiming state is OK here instead of checking the
       // actor state by obtaining the lock
@@ -602,11 +622,12 @@ class BPOfferService {
       return false;
     }
     writeLock();
+    // 对于Active Namenode和Standby Namenode返回的指令，处理逻辑是不同的
     try {
       if (actor == bpServiceToActive) {
-        return processCommandFromActive(cmd, actor);
+        return processCommandFromActive(cmd, actor); // 对于Active Namenode返回的指令
       } else {
-        return processCommandFromStandby(cmd, actor);
+        return processCommandFromStandby(cmd, actor); // // 对于Standby Namenode返回的指令， 为了防止脑裂，实际是直接忽略
       }
     } finally {
       writeUnlock();
@@ -643,6 +664,7 @@ class BPOfferService {
     final BlockIdCommand blockIdCmd = 
       cmd instanceof BlockIdCommand ? (BlockIdCommand)cmd: null;
 
+    // 处理Datanode Action(DNA)
     switch(cmd.getAction()) {
     case DatanodeProtocol.DNA_TRANSFER:
       // Send a copy of a block to another datanode
@@ -668,7 +690,7 @@ class BPOfferService {
       }
       dn.metrics.incrBlocksRemoved(toDelete.length);
       break;
-    case DatanodeProtocol.DNA_CACHE:
+    case DatanodeProtocol.DNA_CACHE: // 缓存某个block
       LOG.info("DatanodeCommand action: DNA_CACHE for " +
         blockIdCmd.getBlockPoolId() + " of [" +
           blockIdArrayToString(blockIdCmd.getBlockIds()) + "]");
@@ -695,6 +717,7 @@ class BPOfferService {
       break;
     case DatanodeProtocol.DNA_RECOVERBLOCK:
       String who = "NameNode at " + actor.getNNSocketAddress();
+      // 租约恢复操作
       dn.recoverBlocks(who, ((BlockRecoveryCommand)cmd).getRecoveringBlocks());
       break;
     case DatanodeProtocol.DNA_ACCESSKEYUPDATE:
@@ -731,7 +754,7 @@ class BPOfferService {
   private boolean processCommandFromStandby(DatanodeCommand cmd,
       BPServiceActor actor) throws IOException {
     switch(cmd.getAction()) {
-    case DatanodeProtocol.DNA_ACCESSKEYUPDATE:
+    case DatanodeProtocol.DNA_ACCESSKEYUPDATE:  // 安全相关
       LOG.info("DatanodeCommand action from standby: DNA_ACCESSKEYUPDATE");
       if (dn.isBlockTokenEnabled) {
         dn.blockPoolTokenSecretManager.addKeys(

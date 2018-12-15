@@ -45,17 +45,18 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
   private static final Log LOG = LogFactory.getLog(EditLogFileOutputStream.class);
   public static final int MIN_PREALLOCATION_LENGTH = 1024 * 1024;
 
-  private File file;
-  private FileOutputStream fp; // file stream for storing edit logs
-  private FileChannel fc; // channel of the file stream for sync
-  private EditsDoubleBuffer doubleBuf;
-  static final ByteBuffer fill = ByteBuffer.allocateDirect(MIN_PREALLOCATION_LENGTH);
+  private File file; // 输出流对应的editlog文件
+  private FileOutputStream fp; // file stream for storing edit logs editlog文件对应的输出流
+  private FileChannel fc; // channel of the file stream for sync editlog文件对应的输出流通道
+  private EditsDoubleBuffer doubleBuf; // 一个具有两块缓存的缓冲区，数据必须先写入缓存，然后再由缓存同步到磁盘上
+  static final ByteBuffer fill = ByteBuffer.allocateDirect(MIN_PREALLOCATION_LENGTH); // 用来扩充editlog文件大小的数据块。当要进行同步操作时，如果editlog文件不够大，则使用fill来扩充editlog。
   private boolean shouldSyncWritesAndSkipFsync = false;
 
   private static boolean shouldSkipFsyncForTests = false;
 
   static {
     fill.position(0);
+    // 将fill字段用FSEditLogOpCodes.OP_INVALID字节填满
     for (int i = 0; i < fill.capacity(); i++) {
       fill.put(FSEditLogOpCodes.OP_INVALID.getOpCode());
     }
@@ -75,12 +76,14 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
   public EditLogFileOutputStream(Configuration conf, File name, int size)
       throws IOException {
     super();
+    // 默认值是false
     shouldSyncWritesAndSkipFsync = conf.getBoolean(
             DFSConfigKeys.DFS_NAMENODE_EDITS_NOEDITLOGCHANNELFLUSH,
             DFSConfigKeys.DFS_NAMENODE_EDITS_NOEDITLOGCHANNELFLUSH_DEFAULT);
-
+    // edits_inprogress_txid 文件
     file = name;
-    doubleBuf = new EditsDoubleBuffer(size);
+    // FileJournalManager传入的值是 512*1024
+    doubleBuf = new EditsDoubleBuffer(size); // 构造双buffer对象
     RandomAccessFile rp;
     if (shouldSyncWritesAndSkipFsync) {
       rp = new RandomAccessFile(name, "rws");
@@ -93,8 +96,8 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
   }
 
   @Override
-  public void write(FSEditLogOp op) throws IOException {
-    doubleBuf.writeOp(op);
+  public void write(FSEditLogOp op) throws IOException { // 向输出流写入一个操作
+    doubleBuf.writeOp(op); // 向doubleBuf写入FSEditLogOp对象
   }
 
   /**
@@ -183,11 +186,12 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
    * data can be still written to the stream while flushing is performed.
    */
   @Override
-  public void setReadyToFlush() throws IOException {
-    doubleBuf.setReadyToFlush();
+  public void setReadyToFlush() throws IOException { // 为数据同步做准备
+    doubleBuf.setReadyToFlush(); // 调用doubleBuf.setReadyToFlush()交换两个缓冲区
   }
 
   /**
+   * 将输出流中缓存的数据同步到磁盘上的editlog文件中
    * Flush ready buffer to persistent store. currentBuffer is not flushed as it
    * accumulates new log records while readyBuffer will be flushed and synced.
    */
@@ -200,8 +204,9 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
       LOG.info("Nothing to flush");
       return;
     }
-    preallocate(); // preallocate file if necessary
-    doubleBuf.flushTo(fp);
+    // preallocate用于在editlog文件大小不够时，扩充文件大小。
+    preallocate(); // preallocate file if necessary 如果editlog文件大小不够，则扩充文件大小
+    doubleBuf.flushTo(fp); // 将缓存中的数据刷新到editlog文件中
     if (durable && !shouldSkipFsyncForTests && !shouldSyncWritesAndSkipFsync) {
       fc.force(false); // metadata updates not needed
     }
@@ -219,7 +224,8 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
     long position = fc.position();
     long size = fc.size();
     int bufSize = doubleBuf.getReadyBuf().getLength();
-    long need = bufSize - (size - position);
+    long need = bufSize - (size - position); // 判断需要扩充容量的大小
+    // 空间足够，直接返回
     if (need <= 0) {
       return;
     }
@@ -228,7 +234,7 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
     long fillCapacity = fill.capacity();
     while (need > 0) {
       fill.position(0);
-      IOUtils.writeFully(fc, fill, size);
+      IOUtils.writeFully(fc, fill, size); // 将填充缓冲区写入通道，但不改变position，这就是起到了扩充通道的作用
       need -= fillCapacity;
       size += fillCapacity;
       total += fillCapacity;

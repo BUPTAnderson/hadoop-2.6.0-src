@@ -30,6 +30,8 @@ import org.apache.hadoop.hdfs.server.protocol.DatanodeStorage.State;
 import org.apache.hadoop.hdfs.server.protocol.StorageReport;
 
 /**
+ * 对应${dfs.datanode.data.dir}配置的多个目录中的一个, 描述了一个datanode上的一个存储(Storage)，一个datanode可以定义多个存储（在${dfs.datanode.data.dir}中配置多个目录），
+ * 这些存储还可以是异构的，例如可以是磁盘、内存、SSD等。
  * A Datanode has one or more storages. A storage in the Datanode is represented
  * by this class.
  */
@@ -102,18 +104,18 @@ public class DatanodeStorageInfo {
     }
   }
 
-  private final DatanodeDescriptor dn;
-  private final String storageID;
-  private StorageType storageType;
-  private State state;
+  private final DatanodeDescriptor dn; // 当前存储所在的Datanode对应的DatanodeDescriptor对象
+  private final String storageID; // 当前存储在集群内唯一的标识符
+  private StorageType storageType; // 用于描述当前存储是什么类型，例如是磁盘还是闪存
+  private State state; // 当前存储的状态
 
-  private long capacity;
-  private long dfsUsed;
-  private volatile long remaining;
-  private long blockPoolUsed;
-
-  private volatile BlockInfo blockList = null;
-  private int numBlocks = 0;
+  private long capacity; // 当前存储的容量
+  private long dfsUsed; // 当前存储的使用量
+  private volatile long remaining; // 当前存储的剩余容量
+  private long blockPoolUsed; // 当前存储的块池使用量
+  // 保存了数据节点存储与数据块的信息，用来记录当前存储上保存的数据块副本链表的头节点，当namenode接收到一个新的数据块时，会调用DatanodeStorageInfo.addBlock()方法在blocklist中添加这个副本对应的BlockInfo对象
+  private volatile BlockInfo blockList = null; // 该DatanodeStorageInfo存储的第一个数据块对应的BlockInfo对象，利用BlockInfo.triplets[]字段的双向链表结构，可以通过这个字段保存这个数据块存储上所有的数据块对应的BlockInfo对象
+  private int numBlocks = 0; // 当前存储中保存的副本数量
 
   /** The number of block reports received */
   private int blockReportCount = 0;
@@ -153,6 +155,9 @@ public class DatanodeStorageInfo {
     return blockContentsStale;
   }
 
+  /**
+   * 在NameNode HA切换时将当前DatanodeStorageInfo设置为stale状态
+   */
   void markStaleAfterFailover() {
     heartbeatedSinceFailover = false;
     blockContentsStale = true;
@@ -218,6 +223,7 @@ public class DatanodeStorageInfo {
   public boolean addBlock(BlockInfo b) {
     // First check whether the block belongs to a different storage
     // on the same DN.
+    // 首先检查这个数据块是否属于同一个datanode上的另一个存储
     boolean replaced = false;
     DatanodeStorageInfo otherStorage =
         b.findStorageInfo(getDatanodeDescriptor());
@@ -225,16 +231,20 @@ public class DatanodeStorageInfo {
     if (otherStorage != null) {
       if (otherStorage != this) {
         // The block belongs to a different storage. Remove it first.
+        // 如果当前数据块属于另一个存储，则先从该存储上删除这个数据块
         otherStorage.removeBlock(b);
         replaced = true;
       } else {
         // The block is already associated with this storage.
+        // 数据块以及添加到了当前存储上，不需要再次添加
         return false;
       }
     }
 
     // add to the head of the data-node list
-    b.addStorage(this);
+    // 首先将当前存储添加到数据块所属的存储列表中
+    b.addStorage(this); // 在blockInfo的triplets[]数组中添加当前DatanodeStorageInfo的信息
+    // 之后将当前数据块添加到存储管理的数据块链表中
     blockList = b.listInsert(blockList, this);
     numBlocks++;
     return !replaced;

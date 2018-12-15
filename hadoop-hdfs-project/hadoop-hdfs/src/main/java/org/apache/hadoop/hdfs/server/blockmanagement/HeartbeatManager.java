@@ -191,7 +191,7 @@ class HeartbeatManager implements DatanodeStatistics {
   }
 
   synchronized void register(final DatanodeDescriptor d) {
-    if (!d.isAlive) {
+    if (!d.isAlive) { // 之前统计该datanode是非alive的，这里也进行更新
       addDatanode(d);
 
       //update its timestamp
@@ -221,9 +221,11 @@ class HeartbeatManager implements DatanodeStatistics {
   synchronized void updateHeartbeat(final DatanodeDescriptor node,
       StorageReport[] reports, long cacheCapacity, long cacheUsed,
       int xceiverCount, int failedVolumes) {
+    // 先减去该node的旧的统计指标, node是当前namenode上存储的datanode的信息
     stats.subtract(node);
     node.updateHeartbeat(reports, cacheCapacity, cacheUsed,
-        xceiverCount, failedVolumes);
+        xceiverCount, failedVolumes); // 更新node的信息
+    // 把该datanode的新的统计指标加到stats中
     stats.add(node);
   }
 
@@ -273,28 +275,29 @@ class HeartbeatManager implements DatanodeStatistics {
     if (namesystem.isInStartupSafeMode()) {
       return;
     }
+    // 查找故障节点以及故障存储
     boolean allAlive = false;
     while (!allAlive) {
-      // 记录第一个死亡的datanode
+      // 保存第一个死亡的datanode
       // locate the first dead node.
       DatanodeID dead = null;
 
       // locate the first failed storage that isn't on a dead node.
-      // 记录非死亡datanode上的第一个失败数据目录
+      // 记录非死亡datanode上的第一个失败数据目录，保存找到的第一个故障存储，注意故障存储所在的Datanode必须是正常运行的
       DatanodeStorageInfo failedStorage = null;
 
       // check the number of stale nodes
       int numOfStaleNodes = 0;
       int numOfStaleStorages = 0;
       synchronized(this) {
-        // 检查节点与数据目录
+        // 遍历所有故障目录，检查节点与数据目录
         for (DatanodeDescriptor d : datanodes) {
-          // 检查节点是否死亡或过时
+          // 调用isDatanodeDead方法检查节点是否死亡，在规定的时间内(10分30s)还未上报心跳，则认为Datanode发生故障
           if (dead == null && dm.isDatanodeDead(d)) {
             stats.incrExpiredHeartbeats();
-            dead = d;
+            dead = d; // 保存找到的第一个故障节点
           }
-          if (d.isStale(dm.getStaleInterval())) {
+          if (d.isStale(dm.getStaleInterval())) { // 默认超过30s未汇报心跳则认为datanode过期
             numOfStaleNodes++;
           }
           // 如果节点存储且未过时，则检查节点上的所有数据目录是否过时或失败
@@ -307,7 +310,7 @@ class HeartbeatManager implements DatanodeStatistics {
             if (failedStorage == null &&
                 storageInfo.areBlocksOnFailedStorage() &&
                 d != dead) {
-              failedStorage = storageInfo;
+              failedStorage = storageInfo; // 保存找到的第一个故障存储(该故障存储所在的节点不能是死亡节点)
             }
           }
 
@@ -318,7 +321,7 @@ class HeartbeatManager implements DatanodeStatistics {
         dm.setNumStaleStorages(numOfStaleStorages);
       }
 
-      allAlive = dead == null && failedStorage == null;
+      allAlive = dead == null && failedStorage == null; // 没有死亡节点，没有故障目录，则allAlive为true
       if (dead != null) {
         // 移除第一个死亡的数据节点及其关联的副本
         // acquire the fsnamesystem lock, and then remove the dead node.
@@ -328,6 +331,7 @@ class HeartbeatManager implements DatanodeStatistics {
             return;
           }
           synchronized(this) {
+            // 调用DatanodeManager.removeDeadDatanode()方法删除故障节点上的所有数据块信息
             dm.removeDeadDatanode(dead);
           }
         } finally {
@@ -343,6 +347,7 @@ class HeartbeatManager implements DatanodeStatistics {
             return;
           }
           synchronized(this) {
+            // 调用BlockManager.removeBlocksAssociatedTo()方法删除故障存储上的所有数据块信息
             blockManager.removeBlocksAssociatedTo(failedStorage);
           }
         } finally {

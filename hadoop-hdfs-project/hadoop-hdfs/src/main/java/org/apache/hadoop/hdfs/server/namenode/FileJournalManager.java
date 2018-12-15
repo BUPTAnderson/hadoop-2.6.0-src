@@ -109,7 +109,8 @@ public class FileJournalManager implements JournalManager {
   synchronized public EditLogOutputStream startLogSegment(long txid,
       int layoutVersion) throws IOException {
     try {
-      currentInProgress = NNStorage.getInProgressEditsFile(sd, txid);
+      currentInProgress = NNStorage.getInProgressEditsFile(sd, txid); // 创建edits_inprogress对应的File对象
+      // 构造EditLogOutputStream对象, 执行完下面的操作会在current目录下创建edits_inprogress文件， 比如是格式化后第一次启动，执行我那完下面这行代码后会创建edits_inprogress_0000000000000000001文件
       EditLogOutputStream stm = new EditLogFileOutputStream(conf,
           currentInProgress, outputBufferCapacity);
       stm.create(layoutVersion);
@@ -126,10 +127,11 @@ public class FileJournalManager implements JournalManager {
   @Override
   synchronized public void finalizeLogSegment(long firstTxId, long lastTxId)
       throws IOException {
+    // 获取 edits_inprogress_firsttxId 文件
     File inprogressFile = NNStorage.getInProgressEditsFile(sd, firstTxId);
 
     File dstFile = NNStorage.getFinalizedEditsFile(
-        sd, firstTxId, lastTxId);
+        sd, firstTxId, lastTxId); // 构造新的edit文件: edits_firstTxId-lastTxId， 注意这里只是构造了File对象，真正的文件并没有在磁盘上生成，是通过下面的重命名操作完成的
     LOG.info("Finalizing edits file " + inprogressFile + " -> " + dstFile);
     
     Preconditions.checkState(!dstFile.exists(),
@@ -137,7 +139,7 @@ public class FileJournalManager implements JournalManager {
         "already exists");
 
     try {
-      NativeIO.renameTo(inprogressFile, dstFile);
+      NativeIO.renameTo(inprogressFile, dstFile); // 重命名edits inprogress文件,edits_inprogress_firsttxId -> edits_firstTxId-lastTxId
     } catch (IOException e) {
       errorReporter.reportErrorOnFile(dstFile);
       throw new IllegalStateException("Unable to finalize edits file " + inprogressFile, e);
@@ -264,7 +266,7 @@ public class FileJournalManager implements JournalManager {
     List<EditLogFile> ret = Lists.newArrayList();
     for (File f : filesInStorage) {
       String name = f.getName();
-      // Check for edits
+      // Check for edits 只有edit开头的文件才符合要求，同时edit开头的文件有edits_0...-0... 和 edits_inprogress_0...这里分开处理，因为inprogress的文件没有结束txid
       Matcher editsMatch = EDITS_REGEX.matcher(name);
       if (editsMatch.matches()) {
         try {
@@ -318,11 +320,11 @@ public class FileJournalManager implements JournalManager {
   synchronized public void selectInputStreams(
       Collection<EditLogInputStream> streams, long fromTxId,
       boolean inProgressOk) throws IOException {
-    List<EditLogFile> elfs = matchEditLogs(sd.getCurrentDir());
+    List<EditLogFile> elfs = matchEditLogs(sd.getCurrentDir()); // 格式化后第一次启动的话这里elfs为0，因为此时current目录下还没有editlog文件
     LOG.debug(this + ": selecting input streams starting at " + fromTxId + 
         (inProgressOk ? " (inProgress ok) " : " (excluding inProgress) ") +
         "from among " + elfs.size() + " candidate file(s)");
-    addStreamsToCollectionFromFiles(elfs, streams, fromTxId, inProgressOk);
+    addStreamsToCollectionFromFiles(elfs, streams, fromTxId, inProgressOk); // 将所有edits文件中起始txid打于等于fromTxId的edits文件加入到streams中
   }
   
   static void addStreamsToCollectionFromFiles(Collection<EditLogFile> elfs,
@@ -342,7 +344,7 @@ public class FileJournalManager implements JournalManager {
           continue;
         }
       }
-      if (elf.lastTxId < fromTxId) {
+      if (elf.lastTxId < fromTxId) { // 如果该edit log的最后的txid小于需要读取的起始的txid，则跳过
         assert elf.lastTxId != HdfsConstants.INVALID_TXID;
         LOG.debug("passing over " + elf + " because it ends at " +
             elf.lastTxId + ", but we only care about transactions " +
@@ -360,8 +362,8 @@ public class FileJournalManager implements JournalManager {
   synchronized public void recoverUnfinalizedSegments() throws IOException {
     File currentDir = sd.getCurrentDir();
     LOG.info("Recovering unfinalized segments in " + currentDir);
-    List<EditLogFile> allLogFiles = matchEditLogs(currentDir);
-
+    List<EditLogFile> allLogFiles = matchEditLogs(currentDir); // 将current目录下所有edits开头的文件都加入到allLogFiles中
+    // 下面的执行逻辑是遍历allLogFiles找到edits_inprogress文件，将edits_inprogress文件重命名为edits_begin_txid-end_txid
     for (EditLogFile elf : allLogFiles) {
       if (elf.getFile().equals(currentInProgress)) {
         continue;
@@ -369,14 +371,14 @@ public class FileJournalManager implements JournalManager {
       if (elf.isInProgress()) {
         // If the file is zero-length, we likely just crashed after opening the
         // file, but before writing anything to it. Safe to delete it.
-        if (elf.getFile().length() == 0) {
+        if (elf.getFile().length() == 0) { // 如果inprogress文件长度为0,直接删除该文件
           LOG.info("Deleting zero-length edit log file " + elf);
           if (!elf.getFile().delete()) {
             throw new IOException("Unable to delete file " + elf.getFile());
           }
           continue;
         }
-
+        // 读取inprogress文件，确认该文件有没有损坏，如果没有损坏会将该文件的最后的txid设置给FileJournalManager.lastTxId属性
         elf.validateLog();
 
         if (elf.hasCorruptHeader()) {
@@ -454,7 +456,7 @@ public class FileJournalManager implements JournalManager {
   public static class EditLogFile {
     private File file;
     private final long firstTxId;
-    private long lastTxId;
+    private long lastTxId; // 读取出inprogress文件最后的txid会设置给该变量
 
     private boolean hasCorruptHeader = false;
     private final boolean isInProgress;
@@ -512,7 +514,7 @@ public class FileJournalManager implements JournalManager {
      */
     public void validateLog() throws IOException {
       EditLogValidation val = EditLogFileInputStream.validateEditLog(file);
-      this.lastTxId = val.getEndTxId();
+      this.lastTxId = val.getEndTxId(); // 读取出inprogress文件最后的txid
       this.hasCorruptHeader = val.hasCorruptHeader();
     }
 

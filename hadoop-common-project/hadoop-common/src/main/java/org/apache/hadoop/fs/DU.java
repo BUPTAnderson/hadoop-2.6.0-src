@@ -32,13 +32,13 @@ import java.util.concurrent.atomic.AtomicLong;
 @InterfaceAudience.LimitedPrivate({"HDFS", "MapReduce"})
 @InterfaceStability.Evolving
 public class DU extends Shell {
-  private String  dirPath;
+  private String  dirPath; // 某个数据目录下的某个块池目录，比如/Users/momo/software/hadoop-2.6.0/hadoop-data1/current/BP-38265890-172.16.199.10-1527073441544
 
   private AtomicLong used = new AtomicLong();
   private volatile boolean shouldRun = true;
   private Thread refreshUsed;
   private IOException duException = null;
-  private long refreshInterval;
+  private long refreshInterval; // 默认10分钟
   
   /**
    * Keeps track of disk usage.
@@ -62,12 +62,12 @@ public class DU extends Shell {
 
     //we set the Shell interval to 0 so it will always run our command
     //and use this one to set the thread sleep interval
-    this.refreshInterval = interval;
-    this.dirPath = path.getCanonicalPath();
+    this.refreshInterval = interval; // 默认值10分钟
+    this.dirPath = path.getCanonicalPath(); // 块池目录，比如/Users/momo/software/hadoop-2.6.0/hadoop-data1/current/BP-38265890-172.16.199.10-1527073441544
 
     //populate the used variable if the initial value is not specified.
-    if (initialUsed < 0) {
-      run();
+    if (initialUsed < 0) { // 没能从dfsUsed文件读取到有效值的话，传进来的值是-1，执行run方法
+      run(); // 调用run方法，时间调用的是Shell的run方法，时间执行shell命令 du -sk dirPath 将结果设置给used
     } else {
       this.used.set(initialUsed);
     }
@@ -187,14 +187,14 @@ public class DU extends Shell {
       used.set(DUHelper.getFolderUsage(dirPath));
       return;
     }
-    super.run();
+    super.run(); // 调用父类Shell的run方法
   }
   
   /**
    * Start the disk usage checking thread.
    */
   public void start() {
-    //only start the thread if the interval is sane
+    //only start the thread if the interval is sane 启动DURefreshThread线程，该线程会定制执行du -sk命令，默认10分钟，获取磁盘使用量设置给used
     if(refreshInterval > 0) {
       refreshUsed = new Thread(new DURefreshThread(), 
           "refreshUsed-"+dirPath);
@@ -228,7 +228,7 @@ public class DU extends Shell {
   
   @Override
   protected void parseExecResult(BufferedReader lines) throws IOException {
-    String line = lines.readLine();
+    String line = lines.readLine(); // "du -sk dirPath"的执行结果，示例：76	/Users/momo/software/hadoop-2.6.0/hadoop-data1/current/BP-38265890-172.16.199.10-1527073441544
     if (line == null) {
       throw new IOException("Expecting a line not the end of stream");
     }
@@ -236,7 +236,7 @@ public class DU extends Shell {
     if(tokens.length == 0) {
       throw new IOException("Illegal du output");
     }
-    this.used.set(Long.parseLong(tokens[0])*1024);
+    this.used.set(Long.parseLong(tokens[0])*1024); // 因为结果是kB，所以这里乘以1024就是字节
   }
 
   public static void main(String[] args) throws Exception {

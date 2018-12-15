@@ -47,7 +47,7 @@ import com.google.common.annotations.VisibleForTesting;
 class InvalidateBlocks {
   /** Mapping: DatanodeInfo -> Collection of Blocks */
   private final Map<DatanodeInfo, LightWeightHashSet<Block>> node2blocks =
-      new TreeMap<DatanodeInfo, LightWeightHashSet<Block>>();
+      new TreeMap<DatanodeInfo, LightWeightHashSet<Block>>(); // 保存了Datanode(使用DatanodeInfo标识)到该Datanode上所有等待删除的副本集合的映射
   /** The total number of blocks in the map. */
   private long numBlocks = 0L;
 
@@ -178,20 +178,22 @@ class InvalidateBlocks {
       }
       return null;
     }
+    // 从node2blocks中取出数据节点对应的待删除副本集合
     final LightWeightHashSet<Block> set = node2blocks.get(dn);
     if (set == null) {
       return null;
     }
 
     // # blocks that can be sent in one message is limited
-    final int limit = blockInvalidateLimit;
-    final List<Block> toInvalidate = set.pollN(limit);
+    final int limit = blockInvalidateLimit; // 默认值为1000， 即该数据节点上一次最多可以删除1000个副本
+    final List<Block> toInvalidate = set.pollN(limit); // 从set中取出limit个待删除的数据块
 
     // If we send everything in this message, remove this node entry
+    //当前节点上没有要删除的数据块，的删除数据结构中节点的入口
     if (set.isEmpty()) {
       remove(dn);
     }
-
+    // 在Datanode中保存需要删除的副本，在下一次心跳时发出删除指令
     dn.addBlocksToBeInvalidated(toInvalidate);
     numBlocks -= toInvalidate.size();
     return toInvalidate;

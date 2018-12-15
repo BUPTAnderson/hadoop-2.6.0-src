@@ -177,7 +177,7 @@ public final class FSImageFormatProtobuf {
       RandomAccessFile raFile = new RandomAccessFile(file, "r");
       FileInputStream fin = new FileInputStream(file);
       try {
-        loadInternal(raFile, fin);
+        loadInternal(raFile, fin); // 核心方法
         long end = Time.monotonicNow();
         LOG.info("Loaded FSImage in " + (end - start) / 1000 + " seconds.");
       } finally {
@@ -191,6 +191,7 @@ public final class FSImageFormatProtobuf {
       if (!FSImageUtil.checkFileFormat(raFile)) {
         throw new IOException("Unrecognized file format");
       }
+      // 从文件末尾加载FileSummary
       FileSummary summary = FSImageUtil.loadSummary(raFile);
       if (requireSameLayoutVersion && summary.getLayoutVersion() !=
           HdfsConstants.NAMENODE_LAYOUT_VERSION) {
@@ -198,14 +199,15 @@ public final class FSImageFormatProtobuf {
             " is not equal to the software version " +
             HdfsConstants.NAMENODE_LAYOUT_VERSION);
       }
-
+      // 获取通道
       FileChannel channel = fin.getChannel();
-
+      // 构造FSImageFormatPBINode.Loader和FSImageFormatPBSnapshot.Loader，加载INode和Snapshot
       FSImageFormatPBINode.Loader inodeLoader = new FSImageFormatPBINode.Loader(
           fsn, this);
       FSImageFormatPBSnapshot.Loader snapshotLoader = new FSImageFormatPBSnapshot.Loader(
           fsn, this);
 
+      // 对sections进行排序
       ArrayList<FileSummary.Section> sections = Lists.newArrayList(summary
           .getSectionsList());
       Collections.sort(sections, new Comparator<FileSummary.Section>() {
@@ -230,9 +232,9 @@ public final class FSImageFormatProtobuf {
        * a particular step to be started for once.
        */
       Step currentStep = null;
-
+      // 遍历每个sections，并调用对应的方法加载这个section
       for (FileSummary.Section s : sections) {
-        channel.position(s.getOffset());
+        channel.position(s.getOffset());  // 在通道中定位这个section的起始位置
         InputStream in = new BufferedInputStream(new LimitInputStream(fin,
             s.getLength()));
 
@@ -241,7 +243,7 @@ public final class FSImageFormatProtobuf {
 
         String n = s.getName();
 
-        switch (SectionName.fromString(n)) {
+        switch (SectionName.fromString(n)) { // 调用不同的方法加载section, 实际就是按照protobuf格式加载不同的section
         case NS_INFO:
           loadNameSystemSection(in);
           break;
@@ -404,9 +406,11 @@ public final class FSImageFormatProtobuf {
     }
 
     void save(File file, FSImageCompression compression) throws IOException {
+      // 打开fsimage文件的输出流并获得文件通道
       FileOutputStream fout = new FileOutputStream(file);
       fileChannel = fout.getChannel();
       try {
+        // 将命名空间保存到fsimage文件中
         saveInternal(fout, compression, file.getAbsolutePath().toString());
       } finally {
         fout.close();
@@ -425,10 +429,10 @@ public final class FSImageFormatProtobuf {
     private void saveInodes(FileSummary.Builder summary) throws IOException {
       FSImageFormatPBINode.Saver saver = new FSImageFormatPBINode.Saver(this,
           summary);
-
+      // 调用serializeINodeSection方法
       saver.serializeINodeSection(sectionOutputStream);
       saver.serializeINodeDirectorySection(sectionOutputStream);
-      saver.serializeFilesUCSection(sectionOutputStream);
+      saver.serializeFilesUCSection(sectionOutputStream); // 处于构建状态的文件信息
     }
 
     private void saveSnapshots(FileSummary.Builder summary) throws IOException {
@@ -443,57 +447,60 @@ public final class FSImageFormatProtobuf {
     private void saveInternal(FileOutputStream fout,
         FSImageCompression compression, String filePath) throws IOException {
       StartupProgress prog = NameNode.getStartupProgress();
-      MessageDigest digester = MD5Hash.getDigester();
 
+      MessageDigest digester = MD5Hash.getDigester();
+      // 构造输出流，一边写入数据，一边写入校验值
       underlyingOutputStream = new DigestOutputStream(new BufferedOutputStream(
           fout), digester);
+      // 先写入"HDFSIMG1"
       underlyingOutputStream.write(FSImageUtil.MAGIC_HEADER);
 
       fileChannel = fout.getChannel();
-
+      // FileSummary为fsimage文件的描述部分，也是protobuf定义的
       FileSummary.Builder b = FileSummary.newBuilder()
-          .setOndiskVersion(FSImageUtil.FILE_VERSION)
-          .setLayoutVersion(NameNodeLayoutVersion.CURRENT_LAYOUT_VERSION);
+          .setOndiskVersion(FSImageUtil.FILE_VERSION) // 在fsimage文件的版本号
+          .setLayoutVersion(NameNodeLayoutVersion.CURRENT_LAYOUT_VERSION); // 布局layout版本号layoutVersion
 
-      codec = compression.getImageCodec();
+      codec = compression.getImageCodec(); // 获取压缩格式，并装饰输出流
       if (codec != null) {
-        b.setCodec(codec.getClass().getCanonicalName());
+        b.setCodec(codec.getClass().getCanonicalName()); // 设置解压/压缩器codec
         sectionOutputStream = codec.createOutputStream(underlyingOutputStream);
       } else {
         sectionOutputStream = underlyingOutputStream;
       }
 
-      saveNameSystemSection(b);
+      // 下面是调用一系列的save*()方法来记录不同的section的元数据信息，这些方法除了在fsimage文件中写入对应种类的元数据信息外，还会在FileSummary中记录section的大小，以及在fsimage中的起始位置。
+      saveNameSystemSection(b); // 保存命名空间信息 "NS_INFO"
       // Check for cancellation right after serializing the name system section.
       // Some unit tests, such as TestSaveNamespace#testCancelSaveNameSpace
       // depends on this behavior.
-      context.checkCancelled();
+      context.checkCancelled(); // 检查是否取消了保存操作
 
       Step step = new Step(StepType.INODES, filePath);
       prog.beginStep(Phase.SAVING_CHECKPOINT, step);
-      saveInodes(b);
-      saveSnapshots(b);
+      saveInodes(b); // 保存命名空间中的INode信息,实际是三部分： "INODE" "INODE_DIR" "FILES_UNDERCONSTRUCTION"
+      saveSnapshots(b); // 保存快照信息，实际是三部分： "SNAPSHOT" "SNAPSHOT_DIFF" "INODE_REFERENCE"
       prog.endStep(Phase.SAVING_CHECKPOINT, step);
 
       step = new Step(StepType.DELEGATION_TOKENS, filePath);
       prog.beginStep(Phase.SAVING_CHECKPOINT, step);
-      saveSecretManagerSection(b);
+      saveSecretManagerSection(b); // 保存安全信息 "SECRET_MANAGER"
       prog.endStep(Phase.SAVING_CHECKPOINT, step);
 
       step = new Step(StepType.CACHE_POOLS, filePath);
       prog.beginStep(Phase.SAVING_CHECKPOINT, step);
-      saveCacheManagerSection(b);
+      saveCacheManagerSection(b); // 保存缓存信息 "CACHE_MANAGER"
       prog.endStep(Phase.SAVING_CHECKPOINT, step);
 
-      saveStringTableSection(b);
+      saveStringTableSection(b); // 保存StringTable信息 "STRING_TABLE"
 
       // We use the underlyingOutputStream to write the header. Therefore flush
       // the buffered stream (which is potentially compressed) first.
       flushSectionOutputStream();
 
       FileSummary summary = b.build();
-      saveFileSummary(underlyingOutputStream, summary);
-      underlyingOutputStream.close();
+      saveFileSummary(underlyingOutputStream, summary); // 保存FileSummary，并写入FileSummaryLength
+      underlyingOutputStream.close(); // 关闭底层输入流
       savedDigest = new MD5Hash(digester.digest());
     }
 

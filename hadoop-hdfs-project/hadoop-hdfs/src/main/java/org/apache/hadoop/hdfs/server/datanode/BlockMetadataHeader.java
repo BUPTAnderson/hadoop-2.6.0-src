@@ -137,7 +137,7 @@ public class BlockMetadataHeader {
    * @throws IOException
    */
   public static BlockMetadataHeader readHeader(DataInputStream in) throws IOException {
-    return readHeader(in.readShort(), in);
+    return readHeader(in.readShort(), in); // 读取short，即读2个字节，默认开头前7个字节是：0001 0200 0002 00，所以这里readShort读的是(0001),这是16进制格式，对应十进制是1
   }
   
   /**
@@ -202,7 +202,7 @@ public class BlockMetadataHeader {
    * Returns the size of the header
    */
   public static int getHeaderSize() {
-    return Short.SIZE/Byte.SIZE + DataChecksum.getChecksumHeaderSize();
+    return Short.SIZE/Byte.SIZE + DataChecksum.getChecksumHeaderSize(); // 返回值是7
   }
 }
 

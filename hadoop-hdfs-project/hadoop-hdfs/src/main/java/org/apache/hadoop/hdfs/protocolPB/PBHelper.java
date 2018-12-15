@@ -2198,6 +2198,7 @@ public class PBHelper {
 
   public static InputStream vintPrefixed(final InputStream input)
       throws IOException {
+    // 读取一个byte的数据
     final int firstByte = input.read();
     if (firstByte == -1) {
       throw new EOFException("Premature EOF: no length prefix available");

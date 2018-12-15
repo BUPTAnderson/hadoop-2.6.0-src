@@ -109,7 +109,7 @@ public class HAUtil {
     if (namenodeId != null) {
       return namenodeId;
     }
-    
+    // 当前节点上配置的namenode
     String suffixes[] = DFSUtil.getSuffixIDs(conf, DFS_NAMENODE_RPC_ADDRESS_KEY,
         nsId, null, DFSUtil.LOCAL_ADDRESS_MATCHER);
     if (suffixes == null) {

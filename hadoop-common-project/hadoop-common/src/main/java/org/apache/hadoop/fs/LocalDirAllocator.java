@@ -80,6 +80,7 @@ public class LocalDirAllocator {
    * @param contextCfgItemName
    */
   public LocalDirAllocator(String contextCfgItemName) {
+    // 默认传入的是：mapreduce.cluster.local.dir
     this.contextCfgItemName = contextCfgItemName;
   }
   

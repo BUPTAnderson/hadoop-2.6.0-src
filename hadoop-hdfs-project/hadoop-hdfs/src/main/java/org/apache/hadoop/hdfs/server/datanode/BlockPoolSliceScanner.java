@@ -112,14 +112,14 @@ class BlockPoolSliceScanner {
        200, MAX_SCAN_RATE);
   
   private static enum ScanType {
-    VERIFICATION_SCAN,     // scanned as part of periodic verfication
-    NONE,
+    VERIFICATION_SCAN,     // scanned as part of periodic verfication 表示扫描结果是由数据块扫描器产生的情况
+    NONE, // NONE用于表示还没有执行过扫描的情况
   }
 
   // Extend Block because in the DN process there's a 1-to-1 correspondence of
   // BlockScanInfo to Block instances, so by extending rather than containing
   // Block, we can save a bit of Object overhead (about 24 bytes per block
-  // replica.)
+  // replica.) BlockScanInfo类保存了数据块的扫描信息
   static class BlockScanInfo extends Block
       implements LightWeightGSet.LinkedElement {
 
@@ -133,15 +133,15 @@ class BlockPoolSliceScanner {
         final long r = right.lastScanTime;
         // compare blocks itself if scantimes are same to avoid.
         // because TreeMap uses comparator if available to check existence of
-        // the object. 
+        // the object. 比较lastScanTime的大小，如果相同则比较block
         return l < r? -1: l > r? 1: left.compareTo(right); 
       }
     };
 
-    long lastScanTime = 0;
-    ScanType lastScanType = ScanType.NONE; 
-    boolean lastScanOk = true;
-    private LinkedElement next;
+    long lastScanTime = 0; // 数据块最后一次扫描时间
+    ScanType lastScanType = ScanType.NONE; // 扫描的类型，定义在ScanType中
+    boolean lastScanOk = true; // 扫描结果，true表示成功，false表示失败
+    private LinkedElement next; // 连接下一个BlockScanInfo对象
     
     BlockScanInfo(Block block) {
       super(block);
@@ -184,9 +184,9 @@ class BlockPoolSliceScanner {
     long hours = conf.getInt(DFSConfigKeys.DFS_DATANODE_SCAN_PERIOD_HOURS_KEY, 
                              DFSConfigKeys.DFS_DATANODE_SCAN_PERIOD_HOURS_DEFAULT);
     if (hours <= 0) {
-      hours = DEFAULT_SCAN_PERIOD_HOURS;
+      hours = DEFAULT_SCAN_PERIOD_HOURS; // 默认值21*24L
     }
-    this.scanPeriod = hours * 3600 * 1000;
+    this.scanPeriod = hours * 3600 * 1000; // 默认值21天
     LOG.info("Periodic Block Verification Scanner initialized with interval "
         + hours + " hours for block pool " + bpid);
 
@@ -431,11 +431,11 @@ class BlockPoolSliceScanner {
       boolean second = (i > 0);
       
       try {
-        adjustThrottler();
-        
+        adjustThrottler(); // 调整节流器，控制验证数据块占有IO的带宽
+        // 构造blocksender对象，将数据块发送到空的输出流中
         blockSender = new BlockSender(block, 0, -1, false, true, true, 
             datanode, null, CachingStrategy.newDropBehind());
-
+        // 空数据流
         DataOutputStream out = 
                 new DataOutputStream(new IOUtils.NullOutputStream());
         
@@ -447,7 +447,7 @@ class BlockPoolSliceScanner {
         if ( second ) {
           totalTransientErrors++;
         }
-        
+        // 数据块验证正确，调用updateScanStatus方法更新数据块的扫描状态
         updateScanStatus((BlockScanInfo)block.getLocalBlock(),
             ScanType.VERIFICATION_SCAN, true);
 
@@ -456,7 +456,7 @@ class BlockPoolSliceScanner {
         updateScanStatus((BlockScanInfo)block.getLocalBlock(),
             ScanType.VERIFICATION_SCAN, false);
 
-        // If the block does not exists anymore, then its not an error
+        // If the block does not exists anymore, then its not an error 如果FsDataset上已经不存在这个数据块的引用，则从磁盘上删除这个数据块
         if (!dataset.contains(block)) {
           LOG.info(block + " is no longer in the dataset");
           deleteBlock(block.getLocalBlock());
@@ -478,7 +478,7 @@ class BlockPoolSliceScanner {
 
         LOG.warn((second ? "Second " : "First ") + "Verification failed for "
             + block, e);
-        
+        // 如果两次检查数据块的校验和都出错了，则调用handleScanFailure方法通知namenode这个数据块已经损坏
         if (second) {
           totalScanErrors++;
           datanode.getMetrics().incrBlockVerificationFailures();
@@ -520,7 +520,7 @@ class BlockPoolSliceScanner {
       }
     }
     if ( block != null ) {
-      verifyBlock(new ExtendedBlock(blockPoolId, block));
+      verifyBlock(new ExtendedBlock(blockPoolId, block)); // 验证数据块
       processedBlocks.put(block.getBlockId(), 1);
     }
   }
@@ -647,7 +647,7 @@ class BlockPoolSliceScanner {
     }
     // Start scanning
     try {
-      scan();
+      scan(); // scan方法执行真正的扫描操作
     } finally {
       totalBlocksScannedInLastRun.set(processedBlocks.size());
       lastScanTime.set(Time.monotonicNow());
@@ -681,7 +681,7 @@ class BlockPoolSliceScanner {
         }
         if (((now - getEarliestScanTime()) >= scanPeriod)
             || ((!blockInfoSet.isEmpty()) && !(this.isFirstBlockProcessed()))) {
-          verifyFirstBlock();
+          verifyFirstBlock(); // 校验
         } else {
           if (LOG.isDebugEnabled()) {
             LOG.debug("All remaining blocks were processed recently, "

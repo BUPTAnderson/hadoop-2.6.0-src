@@ -26,11 +26,11 @@ import static org.apache.hadoop.util.Time.monotonicNow;
  * threads.
  */
 public class DataTransferThrottler {
-  private final long period;          // period over which bw is imposed
+  private final long period;          // period over which bw is imposed 描述一个发送周期的时长，单位是毫秒
   private final long periodExtension; // Max period over which bw accumulates.
-  private long bytesPerPeriod;  // total number of bytes can be sent in each period
+  private long bytesPerPeriod;  // total number of bytes can be sent in each period 描述每个发送周期所能发送数据的大小
   private long curPeriodStart;  // current period starting time
-  private long curReserve;      // remaining bytes can be sent in the period
+  private long curReserve;      // remaining bytes can be sent in the period 保存当前发送周期还能发送的剩余数据大小
   private long bytesAlreadyUsed;
 
   /** Constructor 
@@ -107,7 +107,7 @@ public class DataTransferThrottler {
       long curPeriodEnd = curPeriodStart + period;
 
       if ( now < curPeriodEnd ) {
-        // Wait for next period so that curReserve can be increased.
+        // Wait for next period so that curReserve can be increased. 等待至下一个周期，curReserve可以增加
         try {
           wait( curPeriodEnd - now );
         } catch (InterruptedException e) {
@@ -118,11 +118,11 @@ public class DataTransferThrottler {
         }
       } else if ( now <  (curPeriodStart + periodExtension)) {
         curPeriodStart = curPeriodEnd;
-        curReserve += bytesPerPeriod;
+        curReserve += bytesPerPeriod; // 增加剩余请求量
       } else {
         // discard the prev period. Throttler might not have
         // been used for a long time.
-        curPeriodStart = now;
+        curPeriodStart = now; // 长时间没有使用节流器，重置节流器
         curReserve = bytesPerPeriod - bytesAlreadyUsed;
       }
     }

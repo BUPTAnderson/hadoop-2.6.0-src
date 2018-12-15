@@ -132,9 +132,10 @@ class DataXceiverServer implements Runnable {
     Peer peer = null;
     while (datanode.shouldRun && !datanode.shutdownForUpgrade) {
       try {
-        peer = peerServer.accept();
+        peer = peerServer.accept(); // 接收socket连接请求, Peer对象封装了Socket对象，提供通信的输入/输出流
 
         // Make sure the xceiver count is not exceeded
+        // 检查DataXceiver线程的数量，超过最大限制就抛出异常
         int curXceiverCount = datanode.getXceiverCount();
         if (curXceiverCount > maxXceiverCount) {
           throw new IOException("Xceiver count " + curXceiverCount
@@ -142,10 +143,11 @@ class DataXceiverServer implements Runnable {
               + maxXceiverCount);
         }
 
+        // 启动一个新的DataXceiver线程来处理客户端的一个TCP请求
         new Daemon(datanode.threadGroup,
             DataXceiver.create(peer, datanode, this))
             .start();
-      } catch (SocketTimeoutException ignored) {
+      } catch (SocketTimeoutException ignored) { // Socket超时异常直接忽略
         // wake up to see if should continue to run
       } catch (AsynchronousCloseException ace) {
         // another thread closed our listener socket - that's expected during shutdown,
@@ -176,7 +178,7 @@ class DataXceiverServer implements Runnable {
 
     // Close the server to stop reception of more requests.
     try {
-      peerServer.close();
+      peerServer.close(); // 关闭peerServer
       closed = true;
     } catch (IOException ie) {
       LOG.warn(datanode.getDisplayName()
@@ -199,7 +201,7 @@ class DataXceiverServer implements Runnable {
         }
       }
     }
-    // Close all peers.
+    // Close all peers. 清理所有peers
     closeAllPeers();
   }
 

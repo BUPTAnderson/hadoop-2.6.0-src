@@ -97,7 +97,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
   private FileEncryptionInfo fileEncryptionInfo = null;
   private DatanodeInfo currentNode = null;
   private LocatedBlock currentLocatedBlock = null;
-  private long pos = 0;
+  private long pos = 0; // 当前读取的位置在文件中的偏移量
   private long blockEnd = -1;
   private CachingStrategy cachingStrategy;
   private final ReadStatistics readStatistics = new ReadStatistics();
@@ -222,12 +222,14 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
   
   DFSInputStream(DFSClient dfsClient, String src, int buffersize, boolean verifyChecksum
                  ) throws IOException, UnresolvedLinkException {
+    // 初始化相关属性
     this.dfsClient = dfsClient;
-    this.verifyChecksum = verifyChecksum;
-    this.buffersize = buffersize;
-    this.src = src;
+    this.verifyChecksum = verifyChecksum; // 读取数据时是否进行校验
+    this.buffersize = buffersize; // 读取数据时的缓冲区大小，对应配置项io.file.buffer.size,默认值4KB
+    this.src = src; // 读取文件的地址
     this.cachingStrategy =
-        dfsClient.getDefaultReadCachingStrategy();
+        dfsClient.getDefaultReadCachingStrategy(); // 缓存策略
+    // 调用openInfo方法从namenode获取相关信息可能会与datanode通信
     openInfo();
   }
 
@@ -235,8 +237,11 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
    * Grab the open-file info from namenode
    */
   synchronized void openInfo() throws IOException, UnresolvedLinkException {
+    // fetchLocatedBlocksAndGetLastBlockLength有两个功能：获取文件对应的所有数据块的位置信息赋值给locatedBlocks，另一个是返回最后一个未构造完成的block的长度，如果所有block都是COMPLETE状态，则返回0
     lastBlockBeingWrittenLength = fetchLocatedBlocksAndGetLastBlockLength();
+    // 初始化重试次数，默认3次
     int retriesForLastBlockLength = dfsClient.getConf().retryTimesForGetLastBlockLength;
+    // 如果出现无法获取数据长度的情况，比如当集群重启时，dn可能没来及汇报block，此时可能存在部分block的location无法从nn上读出，则重试
     while (retriesForLastBlockLength > 0) {
       // Getting last block length as -1 is a special case. When cluster
       // restarts, DNs may not report immediately. At this time partial block
@@ -246,6 +251,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
         DFSClient.LOG.warn("Last block locations not available. "
             + "Datanodes might not have reported blocks completely."
             + " Will retry for " + retriesForLastBlockLength + " times");
+        // 线程睡眠(默认值4s)，再次调用fetchLocatedBlocksAndGetLastBlockLength()方法
         waitFor(dfsClient.getConf().retryIntervalForGetLastBlockLength);
         lastBlockBeingWrittenLength = fetchLocatedBlocksAndGetLastBlockLength();
       } else {
@@ -253,6 +259,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
       }
       retriesForLastBlockLength--;
     }
+    // 重试3次仍无法获取数据块长度信息，则抛出异常
     if (retriesForLastBlockLength == 0) {
       throw new IOException("Could not obtain the last block locations.");
     }
@@ -268,6 +275,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
   }
 
   private long fetchLocatedBlocksAndGetLastBlockLength() throws IOException {
+    // 通过ClientProtocol调用FSNamespace.getLocatedBlocks获取一批数据块的位置信息，默认是获取10个block
     final LocatedBlocks newInfo = dfsClient.getLocatedBlocks(src, 0);
     if (DFSClient.LOG.isDebugEnabled()) {
       DFSClient.LOG.debug("newInfo = " + newInfo);
@@ -276,36 +284,45 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
       throw new IOException("Cannot open filename " + src);
     }
 
+    // 将获取的位置信息与locatedBlocks保存的位置信息进行比较
     if (locatedBlocks != null) {
       Iterator<LocatedBlock> oldIter = locatedBlocks.getLocatedBlocks().iterator();
       Iterator<LocatedBlock> newIter = newInfo.getLocatedBlocks().iterator();
+      // 如果数据块位置信息不匹配，则抛出异常
       while (oldIter.hasNext() && newIter.hasNext()) {
         if (! oldIter.next().getBlock().equals(newIter.next().getBlock())) {
           throw new IOException("Blocklist for " + src + " has changed!");
         }
       }
     }
+    // 更新locatedBlocks字段
     locatedBlocks = newInfo;
     long lastBlockBeingWrittenLength = 0;
+    // 判断此src是否有正在构建的block，即判断最后一个block的状态是否是COMPLETE
     if (!locatedBlocks.isLastBlockComplete()) {
+      // 获取最后一个数据块的位置信息
       final LocatedBlock last = locatedBlocks.getLastLocatedBlock();
       if (last != null) {
         if (last.getLocations().length == 0) {
           if (last.getBlockSize() == 0) {
             // if the length is zero, then no data has been written to
             // datanode. So no need to wait for the locations.
+            // 如果最后一个数据块的长度为0，则不用更新，直接返回
             return 0;
           }
           return -1;
         }
+        // 通过ClientDatanodeProtocol获取数据块在Datanode上的长度
         final long len = readBlockLength(last);
+        // 更新DFSClient.locatedBlocks保存的最后一个数据块的长度
         last.getBlock().setNumBytes(len);
         lastBlockBeingWrittenLength = len; 
       }
     }
-
+    // 获取block的加密信息，对于没有加密的block，该值为null
     fileEncryptionInfo = locatedBlocks.getFileEncryptionInfo();
 
+    // 返回结果
     currentNode = null;
     return lastBlockBeingWrittenLength;
   }
@@ -313,16 +330,19 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
   /** Read the block length from one of the datanodes. */
   private long readBlockLength(LocatedBlock locatedblock) throws IOException {
     assert locatedblock != null : "LocatedBlock cannot be null";
+    // 获取该数据块所在数据节点DN的个数
     int replicaNotFoundCount = locatedblock.getLocations().length;
-    
+
+    // 遍历保存这个数据块副本的所有数据节点，知道该节点上该block的数据长度不为0，或者遍历完所有DN为止
     for(DatanodeInfo datanode : locatedblock.getLocations()) {
       ClientDatanodeProtocol cdp = null;
       
       try {
+        // 创建数据节点对应的ClientDatanodeProtocol对象
         cdp = DFSUtil.createClientDatanodeProtocolProxy(datanode,
             dfsClient.getConfiguration(), dfsClient.getConf().socketTimeout,
             dfsClient.getConf().connectToDnViaHostname, locatedblock);
-        
+        // 调用ClientDatanodeProtocol.getReplicaVisibleLength()方法获取数据块副本在当前数据节点上的长度
         final long n = cdp.getReplicaVisibleLength(locatedblock.getBlock());
         
         if (n >= 0) {
@@ -358,7 +378,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
 
     throw new IOException("Cannot obtain block length for " + locatedblock);
   }
-  
+  // 获取要读取的文件总的大小，因为如果文件最后一个block是BlockInfoUnderConstruction，fileLength不包含最有一个block的大小，所以这里要加上.如果block都是完成状态，则lastBlockBeingWrittenLength为0
   public synchronized long getFileLength() {
     return locatedBlocks == null? 0:
         locatedBlocks.getFileLength() + lastBlockBeingWrittenLength;
@@ -416,6 +436,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
           + ", updatePosition=" + updatePosition
           + ", locatedBlocks=" + locatedBlocks);
     }
+    // offset <= locatedBlocks.getFileLength() + lastBlockBeingWrittenLength, 同时offset >= locatedBlocks.getFileLength(), 所以是最后一个block
     else if (offset >= locatedBlocks.getFileLength()) {
       // offset to the portion of the last block,
       // which is not known to the name-node yet;
@@ -423,19 +444,25 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
       blk = locatedBlocks.getLastLocatedBlock();
     }
     else {
-      // search cached blocks first
+      // search cached blocks first， 通过二分查找获得offset所在的LocatedBlock索引
       int targetBlockIdx = locatedBlocks.findBlock(offset);
+      // 在当前这一批locatedBlocks中没有找到，即不在当前这批block内
       if (targetBlockIdx < 0) { // block is not cached
+        // 确定插入点
         targetBlockIdx = LocatedBlocks.getInsertIndex(targetBlockIdx);
         // fetch more blocks
+        // 再次与NN通信抓取blocks，从当前offset处开始再次抓取固定长度的block，此次抓取的block的是从offset所在block开始抓取的。 // 在此通过rpc请求从NN获取一批block信息
         final LocatedBlocks newBlocks = dfsClient.getLocatedBlocks(src, offset);
         assert (newBlocks != null) : "Could not find target position " + offset;
+        // 将new block插入到缓存的targetBlockIdx位置中
         locatedBlocks.insertRange(targetBlockIdx, newBlocks.getLocatedBlocks());
       }
+      // 得到offset所在的block  targetBlockIdx是block在缓存中的索引
       blk = locatedBlocks.get(targetBlockIdx);
     }
 
     // update current position
+    // 更新read的起始地址pos和结束地址blockEnd
     if (updatePosition) {
       pos = offset;
       blockEnd = blk.getStartOffset() + blk.getBlockSize() - 1;
@@ -538,11 +565,12 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
    * We get block ID and the IDs of the destinations at startup, from the namenode.
    */
   private synchronized DatanodeInfo blockSeekTo(long target) throws IOException {
-    if (target >= getFileLength()) {
+    if (target >= getFileLength()) { // getFileLength获取的是
       throw new IOException("Attempted to read past end of file");
     }
 
     // Will be getting a new BlockReader.
+    // 关闭上一个数据块对应的blockReader, 第一次读取数据的时候,blockReader为null
     if (blockReader != null) {
       blockReader.close();
       blockReader = null;
@@ -560,19 +588,22 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
     while (true) {
       //
       // Compute desired block
-      //
+      // 获取到target所在的LocatedBlock，同时更新pos=target, blockEnd,currentLocatedBlock
       LocatedBlock targetBlock = getBlockAt(target, true);
       assert (target==pos) : "Wrong postion " + pos + " expect " + target;
+      // 获取当前target在新数据块中的偏移量
       long offsetIntoBlock = target - targetBlock.getStartOffset();
 
+      // 获取要连接的datanode信息用来读取该block，默认是block所在datanode列表中的第一个datanode，因为这个列表中的datanode已经在namenode中排过序了
       DNAddrPair retval = chooseDataNode(targetBlock, null);
-      chosenNode = retval.info;
-      InetSocketAddress targetAddr = retval.addr;
+      chosenNode = retval.info; // 选中的datanode
+      InetSocketAddress targetAddr = retval.addr; // 选中的datanode地址
       StorageType storageType = retval.storageType;
 
       try {
         ExtendedBlock blk = targetBlock.getBlock();
         Token<BlockTokenIdentifier> accessToken = targetBlock.getBlockToken();
+        // 借助工厂类BlockReaderFactory，使用 Builder模式 创建一个 blockReader
         blockReader = new BlockReaderFactory(dfsClient.getConf()).
             setInetSocketAddress(targetAddr).
             setRemotePeerFactory(dfsClient).
@@ -581,13 +612,13 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
             setFileName(src).
             setBlock(blk).
             setBlockToken(accessToken).
-            setStartOffset(offsetIntoBlock).
+            setStartOffset(offsetIntoBlock). // 设置读取的位置在所在的block中的偏移量
             setVerifyChecksum(verifyChecksum).
             setClientName(dfsClient.clientName).
-            setLength(blk.getNumBytes() - offsetIntoBlock).
+            setLength(blk.getNumBytes() - offsetIntoBlock). // 设置要读取的长度， block的大小 - offsetIntoBlock， 即从偏移量offsetIntoBlock读取到block结尾
             setCachingStrategy(cachingStrategy).
-            setAllowShortCircuitLocalReads(!shortCircuitForbidden()).
-            setClientCacheContext(dfsClient.getClientContext()).
+            setAllowShortCircuitLocalReads(!shortCircuitForbidden()). // 如果文件under construction则不支持短路读
+            setClientCacheContext(dfsClient.getClientContext()). // 将client的clientContext设置给factory
             setUserGroupInformation(dfsClient.ugi).
             setConfiguration(dfsClient.getConfiguration()).
             build();
@@ -597,14 +628,14 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
         }
         return chosenNode;
       } catch (IOException ex) {
-        if (ex instanceof InvalidEncryptionKeyException && refetchEncryptionKey > 0) {
+        if (ex instanceof InvalidEncryptionKeyException && refetchEncryptionKey > 0) { // 安全相关的异常
           DFSClient.LOG.info("Will fetch a new encryption key and retry, " 
               + "encryption key was invalid when connecting to " + targetAddr
               + " : " + ex);
           // The encryption key used is invalid.
           refetchEncryptionKey--;
           dfsClient.clearDataEncryptionKey();
-        } else if (refetchToken > 0 && tokenRefetchNeeded(ex, targetAddr)) {
+        } else if (refetchToken > 0 && tokenRefetchNeeded(ex, targetAddr)) { // 安全相关
           refetchToken--;
           fetchBlockAt(target);
         } else {
@@ -612,7 +643,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
           DFSClient.LOG.warn("Failed to connect to " + targetAddr + " for block"
             + ", add to deadNodes and continue. " + ex, ex);
           // Put chosen node into dead list, continue
-          addToDeadNodes(chosenNode);
+          addToDeadNodes(chosenNode); // blockReader构造失败将chosenNode加入黑名单
         }
       }
     }
@@ -628,6 +659,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
     }
     dfsClient.checkOpen();
 
+    // 关闭读取过程中使用的ByteBuffer
     if (!extendedReadBuffers.isEmpty()) {
       final StringBuilder builder = new StringBuilder();
       extendedReadBuffers.visitAll(new IdentityHashStore.Visitor<ByteBuffer, Object>() {
@@ -642,10 +674,12 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
           "unreleased ByteBuffers allocated by read().  " +
           "Please release " + builder.toString() + ".");
     }
+    // 关闭BlockReader对象
     if (blockReader != null) {
       blockReader.close();
       blockReader = null;
     }
+    // 调用父类的close方法
     super.close();
     closed = true;
   }
@@ -690,6 +724,8 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
     @Override
     public int doRead(BlockReader blockReader, int off, int len,
             ReadStatistics readStatistics) throws ChecksumException, IOException {
+        // 读取len长度的数据，存放到buf中off位置
+        // 调用具体的实现方法，比如对于远程read，调用的是RemoteBlockReader2的实现
         int nRead = blockReader.read(buf, off, len);
         updateReadStatistics(readStatistics, nRead, blockReader);
         return nRead;
@@ -741,19 +777,22 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
      * since client is idle. If there are other cases of "non-errors" then
      * then a datanode might be retried by setting this to true again.
      */
+    // retryCurrentNode标识当前节点read失败之后是否进行重试，如果是ChecksumException失败，则不进行重试，如果是IOException失败，则进行重试，并且只重试一次。
+    // 因为可能存在由于client长时间没有任何动作，则dn关闭了连接导致IOException，此时进行重试。此处进行重试并不是马上对该节点进行重试，只是不该节点标为dead，可以在随后的choseNode时可以被再次选择。
     boolean retryCurrentNode = true;
 
     while (true) {
       // retry as many times as seekToNewSource allows.
       try {
+        // 调用ByteArrayStrategy重写的doRead方法
         return reader.doRead(blockReader, off, len, readStatistics);
-      } catch ( ChecksumException ce ) {
+      } catch ( ChecksumException ce ) { // 出现校验异常时，表明currentNode上的数据出现了错误
         DFSClient.LOG.warn("Found Checksum error for "
             + getCurrentBlock() + " from " + currentNode
             + " at " + ce.getPos());        
         ioe = ce;
-        retryCurrentNode = false;
-        // we want to remember which block replicas we have tried
+        retryCurrentNode = false; // 如果检测到ChecksumException异常，retryCurrentNode 变为fasle，将当前节点加入deadNodes，然后进行seekToNewSource
+        // we want to remember which block replicas we have tried 将损坏的数据块加入corruptedBlockMap
         addIntoCorruptedBlockMap(getCurrentBlock(), currentNode,
             corruptedBlockMap);
       } catch ( IOException e ) {
@@ -765,17 +804,18 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
         ioe = e;
       }
       boolean sourceFound = false;
-      if (retryCurrentNode) {
+      if (retryCurrentNode) { // 如果检测到IOException异常，并且retryCurrentNode为true，则进行seekToBlockSource
         /* possibly retry the same node so that transient errors don't
          * result in application level failures (e.g. Datanode could have
          * closed the connection because the client is idle for too long).
          */ 
-        sourceFound = seekToBlockSource(pos);
+        sourceFound = seekToBlockSource(pos); // seekToNewSource来重新选择一个datanode读取数据(当前节点可能会再次被选中)，该方法只会返回true
       } else {
+        // retryCurrentNode为false，将当前节点加入deadNodes，然后重新选择一个datanode读取数据，seekToNewSource如果选中当前节点返回false，选中新节点返回true
         addToDeadNodes(currentNode);
         sourceFound = seekToNewSource(pos);
       }
-      if (!sourceFound) {
+      if (!sourceFound) { // 没找到新的节点，抛出异常
         throw ioe;
       }
       retryCurrentNode = false;
@@ -783,29 +823,37 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
   }
 
   private int readWithStrategy(ReaderStrategy strategy, int off, int len) throws IOException {
+    // 检查dfsClient是否关闭了
     dfsClient.checkOpen();
     if (closed) {
       throw new IOException("Stream closed");
     }
+    // corruptedBlockMap用于保存损坏的数据块
     Map<ExtendedBlock,Set<DatanodeInfo>> corruptedBlockMap 
       = new HashMap<ExtendedBlock, Set<DatanodeInfo>>();
     failures = 0;
-    if (pos < getFileLength()) {
+    // 保证要读取的位置在文件内
+    if (pos < getFileLength()) { // pos初始值为0
       int retries = 2;
       while (retries > 0) {
         try {
           // currentNode can be left as null if previous read had a checksum
           // error on the same block. See HDFS-3067
-          if (pos > blockEnd || currentNode == null) {
+          if (pos > blockEnd || currentNode == null) { // 第一次调用时，blockEnd初始值为-1， currentNode为null
+            // 获取当前pos所在的block对应的一个datanode赋值给currentNode, 还会初始化blockReader
+            // 客户端在读取数据的过程中，当前方法会被不停的调用，当读取完一个block继续调用read读取数据时，pos = blockEnd + 1, 这时就需要再次执行blockSeekTo来获取下一个数据块所在的datanode
             currentNode = blockSeekTo(pos);
           }
+          // 计算本次能够读取的长度， len是方法传进来的要读取的长度，blockEnd是当前要读取的block的结尾处的偏移量，pos为要读取的block中的开始位置(不一定是block的起始位置)，(blockEnd - pos + 1L)为该block可以读取的数据量
           int realLen = (int) Math.min(len, (blockEnd - pos + 1L));
           if (locatedBlocks.isLastBlockComplete()) {
             realLen = (int) Math.min(realLen, locatedBlocks.getFileLength());
           }
+          // 调用readBuffer从datanode读取数据，返回读取的数据量. 希望读取realLen长度的数据放到strategy封装的字节数组的off位置，off通常为0
           int result = readBuffer(strategy, off, realLen, corruptedBlockMap);
           
           if (result >= 0) {
+            // 增加pos的值，下次再调用当前方法的时候，从pos继续向后读
             pos += result;
           } else {
             // got a EOS from reader though we expect more data on it.
@@ -814,23 +862,23 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
           if (dfsClient.stats != null) {
             dfsClient.stats.incrementBytesRead(result);
           }
-          return result;
-        } catch (ChecksumException ce) {
+          return result; // 返回本次操作读取的数据量，可能为0，客户端会判断读取的数据量>=0的话会继续读取，-1的话停止读取
+        } catch (ChecksumException ce) { // 如果检测到ChecksumException 则直接抛出异常，停止循环
           throw ce;            
-        } catch (IOException e) {
+        } catch (IOException e) { // 如果捕获到IO异常，则retries次数减1，进入下一次循环
           if (retries == 1) {
             DFSClient.LOG.warn("DFS Read", e);
           }
-          blockEnd = -1;
-          if (currentNode != null) { addToDeadNodes(currentNode); }
-          if (--retries == 0) {
+          blockEnd = -1; // 将blockEnd设置为-1，则在重试的时候会重新选取一个DN进行读取
+          if (currentNode != null) { addToDeadNodes(currentNode); } // 读取当前DN时出现了IO异常，所以将当前失败的节点加入黑名单
+          if (--retries == 0) { // 如果重试1次之后读取又出现了异常，则不再重试，抛出异常
             throw e;
           }
         } finally {
           // Check if need to report block replicas corruption either read
-          // was successful or ChecksumException occured.
+          // was successful or ChecksumException occured. 向NN汇报坏块
           reportCheckSumFailure(corruptedBlockMap, 
-              currentLocatedBlock.getLocations().length);
+              currentLocatedBlock.getLocations().length); // currentLocatedBlock是当前正在读取的blk，blockSeekTo方法中会初始化该变量
         }
       }
     }
@@ -838,12 +886,14 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
   }
 
   /**
-   * Read the entire buffer.
+   * Read the entire buffer. IOUtils类中的copyBytes(InputStream in, OutputStream out, int buffSize, boolean close) 进行读操作的时候最终会调用到该方法
    */
   @Override
   public synchronized int read(final byte buf[], int off, int len) throws IOException {
+    // ReaderStrategy 将不同的BlockReader进行了封装
+    // 真正读数据的是BlockReader对象，在readWithStrategy中初始化
     ReaderStrategy byteArrayReader = new ByteArrayStrategy(buf);
-
+    // off是要写入的buf[]中的位置，len是要写入到buf[]中的长度
     return readWithStrategy(byteArrayReader, off, len);
   }
 
@@ -876,11 +926,16 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
       Collection<DatanodeInfo> ignoredNodes) throws IOException {
     while (true) {
       try {
+        // getBestNodeDNAddrPair方法的实际逻辑就是选出第一个不在黑名单中的datanode
         return getBestNodeDNAddrPair(block, ignoredNodes);
       } catch (IOException ie) {
+        // 捕获到getBestNodeDNAddrPair中chosenNode为null的异常之后
+        // 清空deadNodes，重新获取该block的信息
+        // 尝试3次，抛出异常
         String errMsg = getBestNodeDNAddrPairErrorString(block.getLocations(),
           deadNodes, ignoredNodes);
         String blockInfo = block.getBlock() + " file=" + src;
+        // 获取该block信息3次，注意与获取3次dn的区别
         if (failures >= dfsClient.getMaxBlockAcquireFailures()) {
           String description = "Could not obtain block: " + blockInfo;
           DFSClient.LOG.warn(description + errMsg
@@ -913,6 +968,8 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
           Thread.sleep((long)waitTime);
         } catch (InterruptedException iex) {
         }
+        // 从block的所有dn中没有找到合适的dn，则将deadNodes清空，重新获取该block的信息
+        // 一个block一个deadNodes
         deadNodes.clear(); //2nd option is to remove only nodes[blockId]
         openInfo();
         block = getBlockAt(block.getStartOffset(), false);
@@ -935,7 +992,9 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
     StorageType[] storageTypes = block.getStorageTypes();
     DatanodeInfo chosenNode = null;
     StorageType storageType = null;
+    // 选出第一个不在黑名单中的datanode
     if (nodes != null) {
+      // 遍历选出非deadNode节点
       for (int i = 0; i < nodes.length; i++) {
         if (!deadNodes.containsKey(nodes[i])
             && (ignoredNodes == null || !ignoredNodes.contains(nodes[i]))) {
@@ -949,6 +1008,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
         }
       }
     }
+    // 循环了一圈依然没有找到合适的dn
     if (chosenNode == null) {
       throw new IOException("No live nodes contain block " + block.getBlock() +
           " after checking nodes = " + Arrays.toString(nodes) +
@@ -1039,6 +1099,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
       synchronized (this) {
         block = getBlockAt(block.getStartOffset(), false);
         curCachingStrategy = cachingStrategy;
+        // 是否允许短路读取，如果src文件有正在创建的block，则为false
         allowShortCircuitLocalReads = !shortCircuitForbidden();
       }
       DatanodeInfo chosenNode = datanode.info;
@@ -1063,7 +1124,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
             setClientName(dfsClient.clientName).
             setLength(len).
             setCachingStrategy(curCachingStrategy).
-            setAllowShortCircuitLocalReads(allowShortCircuitLocalReads).
+            setAllowShortCircuitLocalReads(allowShortCircuitLocalReads). // 是否允许短路读取，如果文件有正在创建的block，则为false
             setClientCacheContext(dfsClient.getClientContext()).
             setUserGroupInformation(dfsClient.ugi).
             setConfiguration(dfsClient.getConfiguration()).
@@ -1610,11 +1671,13 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
     }
     ByteBuffer buffer = null;
     if (dfsClient.getConf().shortCircuitMmapEnabled) {
+      // 首先尝试零拷贝模式
       buffer = tryReadZeroCopy(maxLength, opts);
     }
     if (buffer != null) {
       return buffer;
     }
+    // 如果零拷贝模式不成功，则退化为一个普通的读取
     buffer = ByteBufferUtil.fallbackRead(this, bufferPool, maxLength);
     if (buffer != null) {
       extendedReadBuffers.put(buffer, bufferPool);
@@ -1632,6 +1695,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
     final long blockPos = curPos - blockStartInFile;
 
     // Shorten this read if the end of the block is nearby.
+    // 首先确保数据块读取是在同一个数据块之内
     long length63;
     if ((curPos + maxLength) <= (curEnd + 1)) {
       length63 = maxLength;
@@ -1654,6 +1718,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
       }
     }
     // Make sure that don't go beyond 31-bit offsets in the MappedByteBuffer.
+    // 取保读取映射数据没有超过2GB
     int length;
     if (blockPos + length63 <= Integer.MAX_VALUE) {
       length = (int)length63;
@@ -1680,6 +1745,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
             "; curEnd=" + curEnd);
       }
     }
+    // 调用getClientMmap方法获取数据块文件的内存映射对象ClientMmap，clientMmap中保存了一个MappedByteBuffer对象，也就是数据块文件在内存中的映射缓冲区
     final ClientMmap clientMmap = blockReader.getClientMmap(opts);
     if (clientMmap == null) {
       if (DFSClient.LOG.isDebugEnabled()) {
@@ -1693,6 +1759,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
     ByteBuffer buffer;
     try {
       seek(curPos + length);
+      // 将内存映射缓冲区返回，在缓冲区中是数据文件的数据
       buffer = clientMmap.getMappedByteBuffer().asReadOnlyBuffer();
       buffer.position((int)blockPos);
       buffer.limit((int)(blockPos + length));

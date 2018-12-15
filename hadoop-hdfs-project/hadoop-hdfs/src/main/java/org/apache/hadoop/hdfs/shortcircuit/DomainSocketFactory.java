@@ -132,24 +132,25 @@ public class DomainSocketFactory {
   public PathInfo getPathInfo(InetSocketAddress addr, DFSClient.Conf conf) {
     // If there is no domain socket path configured, we can't use domain
     // sockets.
-    if (conf.getDomainSocketPath().isEmpty()) return PathInfo.NOT_CONFIGURED;
+    if (conf.getDomainSocketPath().isEmpty()) return PathInfo.NOT_CONFIGURED; // 获取配置项"dfs.domain.socket.path"，如果每有配置则返回PathInfo.NOT_CONFIGURED
     // If we can't do anything with the domain socket, don't create it.
+    // domainSocketDataTraffic默认是false，shortCircuitLocalReads默认是false，如果配置项dfs.client.read.shortcircuit设为true，即开启了短路读，则shortCircuitLocalReads为true,useLegacyBlockReaderLocal默认值为false
     if (!conf.isDomainSocketDataTraffic() &&
         (!conf.isShortCircuitLocalReads() || conf.isUseLegacyBlockReaderLocal())) {
       return PathInfo.NOT_CONFIGURED;
     }
     // If the DomainSocket code is not loaded, we can't create
-    // DomainSocket objects.
+    // DomainSocket objects. 开启了短路读，并且可以正确加载libhadoop.so文件，则getLoadingFailureReason()方法返回null
     if (DomainSocket.getLoadingFailureReason() != null) {
       return PathInfo.NOT_CONFIGURED;
     }
-    // UNIX domain sockets can only be used to talk to local peers
+    // UNIX domain sockets can only be used to talk to local peers // 判断addr是不是本地地址，即client与dn在同一个节点上，如果是短路操作，addr是/0.0.0.0:50010,isLocalAddress方法返回ture
     if (!DFSClient.isLocalAddress(addr)) return PathInfo.NOT_CONFIGURED;
     String escapedPath = DomainSocket.getEffectivePath(
-        conf.getDomainSocketPath(), addr.getPort());
+        conf.getDomainSocketPath(), addr.getPort()); // getDomainSocketPath方法返回配置项"dfs.domain.socket.path"的值，端口是50010
     PathState status = pathMap.getIfPresent(escapedPath);
     if (status == null) {
-      return new PathInfo(escapedPath, PathState.VALID);
+      return new PathInfo(escapedPath, PathState.VALID); // 构造一个新的PathInfo对象并返回
     } else {
       return new PathInfo(escapedPath, status);
     }
@@ -159,7 +160,7 @@ public class DomainSocketFactory {
     Preconditions.checkArgument(info.getPathState() != PathState.UNUSABLE);
     boolean success = false;
     DomainSocket sock = null;
-    try {
+    try { // 创建sock
       sock = DomainSocket.connect(info.getPath());
       sock.setAttribute(DomainSocket.RECEIVE_TIMEOUT, socketTimeout);
       success = true;

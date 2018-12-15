@@ -52,10 +52,10 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   private boolean needToSave = false;
   private boolean isUpgradeFinalized = true;
   
-  final List<FSImageFile> foundImages = new ArrayList<FSImageFile>();
+  final List<FSImageFile> foundImages = new ArrayList<FSImageFile>(); // 执行完NNStorage的inspectStorageDirs方法后(实际调用的是当前类的inspectDirectory方法)，如果是初始化后正常启动的话，needToSave = false,isUpgradeFinalized = true, foundImages里面存放的是${dfs.namenode.name.dir}/current下的fsimage文件， maxSeenTxid从current/seen_txid里面读取的最大的txid
   private long maxSeenTxId = 0;
   
-  private final List<Pattern> namePatterns = Lists.newArrayList();
+  private final List<Pattern> namePatterns = Lists.newArrayList(); // 这里主要匹配fsimage_(\d+) fsimage_rollback_(\d+)
 
   FSImageTransactionalStorageInspector() {
     this(EnumSet.of(NameNodeFile.IMAGE));
@@ -80,7 +80,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
 
   @Override
   public void inspectDirectory(StorageDirectory sd) throws IOException {
-    // Was the directory just formatted?
+    // Was the directory just formatted? 检查sd对于的目录下面 current目录下VERSION文件是否存在
     if (!sd.getVersionFile().exists()) {
       LOG.info("No version file in " + sd.getRoot());
       needToSave |= true;
@@ -88,7 +88,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     }
     
     // Check for a seen_txid file, which marks a minimum transaction ID that
-    // must be included in our load plan.
+    // must be included in our load plan. readTransactionIdFile读取sd对应的目录 下面的current目录下的seen_txid文件中的内容，seen_txid中存放着txid， 初始化完后正常启动的话，该seen_txid中的值为0, 其它情况，seen_txid里存放的是edits_inprogress文件后缀的那个txid
     try {
       maxSeenTxId = Math.max(maxSeenTxId, NNStorage.readTransactionIdFile(sd));
     } catch (IOException ioe) {
@@ -99,18 +99,18 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     File currentDir = sd.getCurrentDir();
     File filesInStorage[];
     try {
-      filesInStorage = FileUtil.listFiles(currentDir);
+      filesInStorage = FileUtil.listFiles(currentDir); // 如果是正常起的话，namenode调用到这个地方，sd对应${dfs.namenode.name.dir}，该目录下的current目录下又4个文件：fsimage_0000000000000000000，fsimage_0000000000000000000.md5, seen_txid, VERSION
     } catch (IOException ioe) {
       LOG.warn("Unable to inspect storage directory " + currentDir,
           ioe);
       return;
     }
-
+    // 检查current目录下的文件是否满足命名格式要求
     for (File f : filesInStorage) {
       LOG.debug("Checking file " + f);
       String name = f.getName();
       
-      // Check for fsimage_*
+      // Check for fsimage_* 只有fsimage开头的文件才会匹配上(注意fsimage_00...md5文件不会匹配上)，匹配上的imageMatch不为null， 匹配上的fsimage会被加入到foundImages中，txid是该fsimage对应的文件后缀代表的txid
       Matcher imageMatch = this.matchPattern(name);
       if (imageMatch != null) {
         if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
@@ -129,7 +129,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
       }
     }
     
-    // set finalized flag
+    // set finalized flag， 如果是初始化后正常启动namenode， isUpgradeFinalized默认值是true， !sd.getPreviousDir().exists()为true， 则isUpgradeFinalized为true
     isUpgradeFinalized = isUpgradeFinalized && !sd.getPreviousDir().exists();
   }
 

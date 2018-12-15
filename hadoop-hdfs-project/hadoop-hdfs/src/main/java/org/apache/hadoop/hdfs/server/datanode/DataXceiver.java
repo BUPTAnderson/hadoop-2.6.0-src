@@ -178,14 +178,14 @@ class DataXceiver extends Receiver implements Runnable {
     try {
       dataXceiverServer.addPeer(peer, Thread.currentThread(), this);
       peer.setWriteTimeout(datanode.getDnConf().socketWriteTimeout);
-      InputStream input = socketIn;
+      InputStream input = socketIn; // 获取底层的输入流
       try {
         IOStreamPair saslStreams = datanode.saslServer.receive(peer, socketOut,
           socketIn, datanode.getXferAddress().getPort(),
           datanode.getDatanodeId());
         input = new BufferedInputStream(saslStreams.in,
-          HdfsConstants.SMALL_BUFFER_SIZE);
-        socketOut = saslStreams.out;
+          HdfsConstants.SMALL_BUFFER_SIZE); // 对输入流进行装饰
+        socketOut = saslStreams.out; // 获取底层的输出流
       } catch (InvalidMagicNumberException imne) {
         LOG.info("Failed to read expected encryption handshake from client " +
             "at " + peer.getRemoteAddressString() + ". Perhaps the client " +
@@ -193,12 +193,14 @@ class DataXceiver extends Receiver implements Runnable {
             "encryption");
         return;
       }
-      
+
+      // 调用父类的initialize方法完成Receiver的初始化操作
       super.initialize(new DataInputStream(input));
       
       // We process requests in a loop, and stay around for a short timeout.
       // This optimistic behaviour allows the other end to reuse connections.
       // Setting keepalive timeout to 0 disable this behavior.
+      // 使用一个循环，以允许客户端发送新的操作请求时重用TCP连接
       do {
         updateCurrentThreadName("Waiting for operation #" + (opsProcessed + 1));
 
@@ -209,30 +211,31 @@ class DataXceiver extends Receiver implements Runnable {
           } else {
             peer.setReadTimeout(dnConf.socketTimeout);
           }
-          op = readOp();
+          op = readOp(); // 从客户端发来的socket中读取op码，判断客户端要进行何种操作操作
         } catch (InterruptedIOException ignored) {
           // Time out while we wait for client rpc
           break;
         } catch (IOException err) {
           // Since we optimistically expect the next op, it's quite normal to get EOF here.
+          // 此处的优化使得正常处理完一个操作后，一定会抛出EOFException或ClosedChannelException，可以退出循环
           if (opsProcessed > 0 &&
               (err instanceof EOFException || err instanceof ClosedChannelException)) {
             if (LOG.isDebugEnabled()) {
               LOG.debug("Cached " + peer + " closing after " + opsProcessed + " ops");
             }
-          } else {
+          } else { // 如果是其他异常，则说明出现错误，重新抛出以退出循环
             throw err;
           }
           break;
         }
 
-        // restore normal timeout
+        // restore normal timeout 超时设置
         if (opsProcessed != 0) {
           peer.setReadTimeout(dnConf.socketTimeout);
         }
 
         opStartTime = now();
-        processOp(op);
+        processOp(op); // 处理请求
         ++opsProcessed;
       } while ((peer != null) &&
           (!peer.isClosed() && dnConf.socketKeepaliveTimeout > 0));
@@ -252,7 +255,7 @@ class DataXceiver extends Receiver implements Runnable {
       } else {
         LOG.error(s, t);
       }
-    } finally {
+    } finally { // 资源清理，包括打开的文件、socket等
       if (LOG.isDebugEnabled()) {
         LOG.debug(datanode.getDisplayName() + ":Number of active connections is: "
             + datanode.getXceiverCount());
@@ -265,6 +268,7 @@ class DataXceiver extends Receiver implements Runnable {
     }
   }
 
+  // 获取数据块文件以及元数据文件的文件描述符
   @Override
   public void requestShortCircuitFds(final ExtendedBlock blk,
       final Token<BlockTokenIdentifier> token,
@@ -480,6 +484,7 @@ class DataXceiver extends Receiver implements Runnable {
     updateCurrentThreadName("Sending block " + block);
     try {
       try {
+        // 创建BlockSender对象
         blockSender = new BlockSender(block, blockOffset, length,
             true, false, sendChecksum, datanode, clientTraceFmt,
             cachingStrategy);
@@ -490,10 +495,10 @@ class DataXceiver extends Receiver implements Runnable {
         throw e;
       }
       
-      // send op status
+      // send op status，首先向客户端回复一个BlockOpResponseProto响应，指明请求已经成功接收，并通过BlockOpResponseProto响应给出Datanode当前使用的校验方式。
       writeSuccessWithChecksumInfo(blockSender, new DataOutputStream(getOutputStream()));
 
-      long read = blockSender.sendBlock(out, baseStream, null); // send data
+      long read = blockSender.sendBlock(out, baseStream, null); // send data 将数据块发送给客户端
 
       if (blockSender.didSendEntireByteRange()) {
         // If we sent the entire range, then we should expect the client
@@ -558,8 +563,12 @@ class DataXceiver extends Receiver implements Runnable {
       final boolean allowLazyPersist) throws IOException {
     previousOpClientName = clientname;
     updateCurrentThreadName("Receiving block " + block);
+    // isDatanode：表示写数据块请求是否由数据节点发起。如果写请求中clientname为空，就说明是由数据节点发起（如数据块复制等由数据节点发起）。向第一个datanode写数据的时候为false。
     final boolean isDatanode = clientname.length() == 0;
+    // isClient：表示写数据块请求是否由客户端发起，此值一定与isDatanode相反。客户端向datanode写数据的时候该值为true
     final boolean isClient = !isDatanode;
+    // stage：表示数据块构建的状态。client第一次调用的时候此处为BlockConstructionStage.PIPELINE_SETUP_CREATE
+    // isTransfers：表示写数据块请求是否为数据块复制。如果stage为BlockConstructionStage.TRANSFER_RBW或BlockConstructionStage.TRANSFER_FINALIZED，则表示为了数据块复制。客户端向datanode写时该值为false。
     final boolean isTransfer = stage == BlockConstructionStage.TRANSFER_RBW
         || stage == BlockConstructionStage.TRANSFER_FINALIZED;
 
@@ -585,15 +594,15 @@ class DataXceiver extends Receiver implements Runnable {
 
     // We later mutate block's generation stamp and length, but we need to
     // forward the original version of the block to downstream mirrors, so
-    // make a copy here.
+    // make a copy here. 我们稍后会更改块的生成标记和长度，但我们需要将块的原始版本转发到下游镜像，因此请在此处复制一份。
     final ExtendedBlock originalBlock = new ExtendedBlock(block);
     if (block.getNumBytes() == 0) {
-      block.setNumBytes(dataXceiverServer.estimateBlockSize);
+      block.setNumBytes(dataXceiverServer.estimateBlockSize); // estimateBlockSize默认值128MB
     }
     LOG.info("Receiving " + block + " src: " + remoteAddress + " dest: "
         + localAddress);
 
-    // reply to upstream datanode or client 
+    // reply to upstream datanode or client 构建向上游datanode或客户端回复的输出流, 用于发送ack(如果是第一个datanode，这里的上游就是client)
     final DataOutputStream replyOut = new DataOutputStream(
         new BufferedOutputStream(
             getOutputStream(),
@@ -601,17 +610,17 @@ class DataXceiver extends Receiver implements Runnable {
     checkAccess(replyOut, isClient, block, blockToken,
         Op.WRITE_BLOCK, BlockTokenSecretManager.AccessMode.WRITE);
 
-    DataOutputStream mirrorOut = null;  // stream to next target
-    DataInputStream mirrorIn = null;    // reply from next target
-    Socket mirrorSock = null;           // socket to next target
-    String mirrorNode = null;           // the name:port of next target
-    String firstBadLink = "";           // first datanode that failed in connection setup
+    DataOutputStream mirrorOut = null;  // stream to next target 到下游节点的输出流
+    DataInputStream mirrorIn = null;    // reply from next target 到下游节点的输入流
+    Socket mirrorSock = null;           // socket to next target 到下游节点的Socket
+    String mirrorNode = null;           // the name:port of next target 下游节点的名称:端口
+    String firstBadLink = "";           // first datanode that failed in connection setup 数据流管道中第一个失败的Datanode
     Status mirrorInStatus = SUCCESS;
-    final String storageUuid;
+    final String storageUuid;           // 保存这个数据块的Datanode存储目录的uuid
     try {
       if (isDatanode || 
           stage != BlockConstructionStage.PIPELINE_CLOSE_RECOVERY) {
-        // open a block receiver
+        // open a block receiver// 创建BlockReceiver，会在磁盘rbw目录下创建blk文件和meta文件，准备从上游节点接收数据块
         blockReceiver = new BlockReceiver(block, storageType, in,
             peer.getRemoteAddressString(),
             peer.getLocalAddressString(),
@@ -620,14 +629,14 @@ class DataXceiver extends Receiver implements Runnable {
             cachingStrategy, allowLazyPersist);
 
         storageUuid = blockReceiver.getStorageUuid();
-      } else {
+      } else { // 管道错误恢复相关
         storageUuid = datanode.data.recoverClose(
             block, latestGenerationStamp, minBytesRcvd);
       }
 
       //
       // Connect to downstream machine, if appropriate
-      //
+      // 连接到下游节点，targets.length == 0 说明当前节点是pipeline中最后一个节点
       if (targets.length > 0) {
         InetSocketAddress mirrorTarget = null;
         // Connect to backup machine
@@ -639,10 +648,10 @@ class DataXceiver extends Receiver implements Runnable {
         mirrorSock = datanode.newSocket();
         try {
           int timeoutValue = dnConf.socketTimeout
-              + (HdfsServerConstants.READ_TIMEOUT_EXTENSION * targets.length);
+              + (HdfsServerConstants.READ_TIMEOUT_EXTENSION * targets.length);  // 建立socket的超时时间
           int writeTimeout = dnConf.socketWriteTimeout + 
-                      (HdfsServerConstants.WRITE_TIMEOUT_EXTENSION * targets.length);
-          NetUtils.connect(mirrorSock, mirrorTarget, timeoutValue);
+                      (HdfsServerConstants.WRITE_TIMEOUT_EXTENSION * targets.length); // 写packet的超时时间
+          NetUtils.connect(mirrorSock, mirrorTarget, timeoutValue); // 建立到下游节点的socket连接
           mirrorSock.setSoTimeout(timeoutValue);
           mirrorSock.setSendBufferSize(HdfsConstants.DEFAULT_DATA_SOCKET_SIZE);
           
@@ -656,10 +665,11 @@ class DataXceiver extends Receiver implements Runnable {
           unbufMirrorOut = saslStreams.out;
           unbufMirrorIn = saslStreams.in;
           mirrorOut = new DataOutputStream(new BufferedOutputStream(unbufMirrorOut,
-              HdfsConstants.SMALL_BUFFER_SIZE));
-          mirrorIn = new DataInputStream(unbufMirrorIn);
+              HdfsConstants.SMALL_BUFFER_SIZE)); // 创建mirrorOut建立到下游节点的输出流
+          mirrorIn = new DataInputStream(unbufMirrorIn); // 创建mirrorIn建立到下游节点的输入流
 
-          // Do not propagate allowLazyPersist to downstream DataNodes.
+          // Do not propagate allowLazyPersist to downstream DataNodes. 创建Sender，向下游节点发送数据块写入请求(建立管道的请求)，
+          // 注意这里writeBlock方法会去掉targets中的第一个节点(targets中的第一个节点是当前节点连接的下游节点，下游节点会从targets中拿出第一个节点作为自己的下游节点，如果targets为空，则说明当前节点是pipeline中最后一个节点)
           new Sender(mirrorOut).writeBlock(originalBlock, targetStorageTypes[0],
               blockToken, clientname, targets, targetStorageTypes, srcDataNode,
               stage, pipelineSize, minBytesRcvd, maxBytesRcvd,
@@ -668,6 +678,7 @@ class DataXceiver extends Receiver implements Runnable {
           mirrorOut.flush();
 
           // read connect ack (only for clients, not for replication req)
+          // 如果是客户端发起的写数据块请求，读取下游节点发送过来的socket连接建立ack，记录请求确认状态。// 将下游节点的管道建立结果作为整个管道的建立结果（要么从尾节点到头结点都是成功的，要么都是失败的）
           if (isClient) {
             BlockOpResponseProto connectAck =
               BlockOpResponseProto.parseFrom(PBHelper.vintPrefixed(mirrorIn));
@@ -680,9 +691,9 @@ class DataXceiver extends Receiver implements Runnable {
                        firstBadLink);
             }
           }
-
+        // 这个catch捕获的是pipeline建立时的异常，当前dn与下游建立连接时发生的异常
         } catch (IOException e) {
-          if (isClient) {
+          if (isClient) { // 如果是客户端发起的写数据块请求，则立即向上游发送状态ERROR的ack（尽管无法保证上游已收到）
             BlockOpResponseProto.newBuilder()
               .setStatus(ERROR)
                // NB: Unconditionally using the xfer addr w/o hostname
@@ -690,14 +701,14 @@ class DataXceiver extends Receiver implements Runnable {
               .build()
               .writeDelimitedTo(replyOut);
             replyOut.flush();
-          }
+          } // 关闭到下游节点的输出流输入流和Socket连接
           IOUtils.closeStream(mirrorOut);
           mirrorOut = null;
           IOUtils.closeStream(mirrorIn);
           mirrorIn = null;
           IOUtils.closeSocket(mirrorSock);
           mirrorSock = null;
-          if (isClient) {
+          if (isClient) { // 如果是客户端发起的写数据块请求，则重新抛出该异常，然后，将跳到外层的catch块
             LOG.error(datanode + ":Exception transfering block " +
                       block + " to mirror " + mirrorNode + ": " + e);
             throw e;
@@ -707,15 +718,17 @@ class DataXceiver extends Receiver implements Runnable {
                      "- continuing without the mirror", e);
           }
         }
-      }
+      } // if结束，判断是否有下游dn，是否建立连接
 
       // send connect-ack to source for clients and not transfer-RBW/Finalized
+      // 发送的第一个packet是空的，只用于建立管道。这里立即向上游节点返回ack表示管道是否建立成功(这里如果有下游节点，实际返回给上游的是下游节点发送过来的mirrorInStatus和firstBadLink)，即当客户端收到第一个datanode管道建立成功的ack时，下游所有的节点的管道一定已经建立成功，加上客户端，组成了完整的管道。
       if (isClient && !isTransfer) {
         if (LOG.isDebugEnabled() || mirrorInStatus != SUCCESS) {
           LOG.info("Datanode " + targets.length +
                    " forwarding connect ack to upstream firstbadlink is " +
                    firstBadLink);
         }
+        // 向upstream发送connect-ack
         BlockOpResponseProto.newBuilder()
           .setStatus(mirrorInStatus)
           .setFirstBadLink(firstBadLink)
@@ -725,12 +738,13 @@ class DataXceiver extends Receiver implements Runnable {
       }
 
       // receive the block and mirror to the next target
+      // 成功建立了与下游节点的输入输出流后，调用receiveBlock方法从上游节点接收数据块,然后将数据块发送到下游节点；同时blockReceiver对象还会从下游节点接收数据包的确认信息，并且将这个确认消息转发到上游节点
       if (blockReceiver != null) {
         String mirrorAddr = (mirrorSock == null) ? null : mirrorNode;
         blockReceiver.receiveBlock(mirrorOut, mirrorIn, replyOut,
             mirrorAddr, null, targets, false);
 
-        // send close-ack for transfer-RBW/Finalized 
+        // send close-ack for transfer-RBW/Finalized 对于复制操作，不需要向下游节点转发数据块，也不需要接收下游节点的确认。所以成功接收完数据块后，在当前节点直接返回确认消息
         if (isTransfer) {
           if (LOG.isTraceEnabled()) {
             LOG.trace("TRANSFER: send close-ack");
@@ -739,7 +753,7 @@ class DataXceiver extends Receiver implements Runnable {
         }
       }
 
-      // update its generation stamp
+      // update its generation stamp 更新当前节点上新写入的数据块副本的时间戳和副本文件长度等信息
       if (isClient && 
           stage == BlockConstructionStage.PIPELINE_CLOSE_RECOVERY) {
         block.setGenerationStamp(latestGenerationStamp);
@@ -748,7 +762,7 @@ class DataXceiver extends Receiver implements Runnable {
       
       // if this write is for a replication request or recovering
       // a failed close for client, then confirm block. For other client-writes,
-      // the block is finalized in the PacketResponder.
+      // the block is finalized in the PacketResponder. 如果是数据流管道的关闭的恢复操作或者是数据块的复制操作，会调用closeBlock方法向NameNode汇报Datanode接收了新的数据块
       if (isDatanode ||
           stage == BlockConstructionStage.PIPELINE_CLOSE_RECOVERY) {
         datanode.closeBlock(block, DataNode.EMPTY_DEL_HINT, storageUuid);
@@ -757,20 +771,20 @@ class DataXceiver extends Receiver implements Runnable {
       }
 
       
-    } catch (IOException ioe) {
+    } catch (IOException ioe) { // 如果捕获到IOC，则直接抛出
       LOG.info("opWriteBlock " + block + " received exception " + ioe);
       throw ioe;
     } finally {
-      // close all opened streams
-      IOUtils.closeStream(mirrorOut);
-      IOUtils.closeStream(mirrorIn);
-      IOUtils.closeStream(replyOut);
-      IOUtils.closeSocket(mirrorSock);
-      IOUtils.closeStream(blockReceiver);
+      // close all opened streams 关闭上下游节点的输入输出流，同时关闭blockReceiver对象 // 剩余资源如到上游的输入流（in）由外层的DataXceiver#run()中的finally块关闭
+      IOUtils.closeStream(mirrorOut); // 关闭到下游的输出流
+      IOUtils.closeStream(mirrorIn); // 关闭到下游的输入流
+      IOUtils.closeStream(replyOut); // 关闭到上游的输出流（replyOut）
+      IOUtils.closeSocket(mirrorSock); // 关闭到下游的socket
+      IOUtils.closeStream(blockReceiver); // 关闭blockReceiver内部封装的大部分资源（通过BlockReceiver#close()完成）
       blockReceiver = null;
     }
 
-    //update metrics
+    //update metrics // 更新metrics
     datanode.metrics.addWriteBlockOp(elapsed());
     datanode.metrics.incrWritesFromClient(peer.isLocal());
   }
@@ -1136,8 +1150,9 @@ class DataXceiver extends Receiver implements Runnable {
     ReadOpChecksumInfoProto ckInfo = ReadOpChecksumInfoProto.newBuilder()
       .setChecksum(DataTransferProtoUtil.toProto(blockSender.getChecksum()))
       .setChunkOffset(blockSender.getOffset())
-      .build();
-      
+      .build(); // 当前DN使用的校验方式
+
+    // 通知客户端读请求已经成功接收，并且告知客户端当前数据节点的校验信息
     BlockOpResponseProto response = BlockOpResponseProto.newBuilder()
       .setStatus(SUCCESS)
       .setReadOpChecksumInfo(ckInfo)

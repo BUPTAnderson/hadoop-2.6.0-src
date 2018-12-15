@@ -256,11 +256,11 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
   private volatile long serverDefaultsLastUpdate;
   final String clientName;
   final SocketFactory socketFactory;
-  final ReplaceDatanodeOnFailure dtpReplaceDatanodeOnFailure;
-  final FileSystem.Statistics stats;
+  final ReplaceDatanodeOnFailure dtpReplaceDatanodeOnFailure; // 当Client读写数据时，如果datanode出现故障，是否进行datanode替换的策略
+  final FileSystem.Statistics stats; // Client状态统计信息，包括Client读、写字节数等
   private final String authority;
   private final Random r = new Random();
-  private SocketAddress[] localInterfaceAddrs;
+  private SocketAddress[] localInterfaceAddrs; // 本地接口地址
   private DataEncryptionKey encryptionKey;
   final SaslDataTransferClient saslClient;
   private final CachingStrategy defaultReadCachingStrategy;
@@ -396,7 +396,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
           DFS_CLIENT_WRITE_EXCLUDE_NODES_CACHE_EXPIRY_INTERVAL,
           DFS_CLIENT_WRITE_EXCLUDE_NODES_CACHE_EXPIRY_INTERVAL_DEFAULT);
       prefetchSize = conf.getLong(DFS_CLIENT_READ_PREFETCH_SIZE_KEY,
-          10 * defaultBlockSize);
+          10 * defaultBlockSize); // 默认是10个block的大小， 一个block的默认大小是128MB
       timeWindow = conf.getInt(DFS_CLIENT_RETRY_WINDOW_BASE, 3000);
       nCachedConnRetry = conf.getInt(DFS_CLIENT_CACHED_CONN_RETRY_KEY,
           DFS_CLIENT_CACHED_CONN_RETRY_DEFAULT);
@@ -424,15 +424,19 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
         DFSConfigKeys.DFS_CLIENT_RETRY_INTERVAL_GET_LAST_BLOCK_LENGTH,
         DFSConfigKeys.DFS_CLIENT_RETRY_INTERVAL_GET_LAST_BLOCK_LENGTH_DEFAULT);
 
+      // 使用传统短路器，默认值是false
       useLegacyBlockReader = conf.getBoolean(
           DFSConfigKeys.DFS_CLIENT_USE_LEGACY_BLOCKREADER,
           DFSConfigKeys.DFS_CLIENT_USE_LEGACY_BLOCKREADER_DEFAULT);
+      // 是否使用旧版本的本地读取，默认值是false，旧版本短路读取对应的是BlockReaderLocalLegacy,新的是BlockReaderLocal
       useLegacyBlockReaderLocal = conf.getBoolean(
           DFSConfigKeys.DFS_CLIENT_USE_LEGACY_BLOCKREADERLOCAL,
           DFSConfigKeys.DFS_CLIENT_USE_LEGACY_BLOCKREADERLOCAL_DEFAULT);
+      // 是否开启了短路读，默认是false
       shortCircuitLocalReads = conf.getBoolean(
           DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_KEY,
           DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_DEFAULT);
+      // 是否支持UNIX domain socket 默认关闭
       domainSocketDataTraffic = conf.getBoolean(
           DFSConfigKeys.DFS_CLIENT_DOMAIN_SOCKET_DATA_TRAFFIC,
           DFSConfigKeys.DFS_CLIENT_DOMAIN_SOCKET_DATA_TRAFFIC_DEFAULT);
@@ -600,7 +604,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
   public DFSClient(URI nameNodeUri, Configuration conf,
                    FileSystem.Statistics stats)
     throws IOException {
-    this(nameNodeUri, null, conf, stats);
+    this(nameNodeUri, null, conf, stats); // 继续调用
   }
   
   /** 
@@ -627,10 +631,10 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
 
     this.ugi = UserGroupInformation.getCurrentUser();
     
-    this.authority = nameNodeUri == null? "null": nameNodeUri.getAuthority();
+    this.authority = nameNodeUri == null? "null": nameNodeUri.getAuthority(); // 比如nameNodeUri:hdfs://localhost:9000,则authority为localhost:9000
     this.clientName = "DFSClient_" + dfsClientConf.taskId + "_" + 
-        DFSUtil.getRandom().nextInt()  + "_" + Thread.currentThread().getId();
-    provider = DFSUtil.createKeyProvider(conf);
+        DFSUtil.getRandom().nextInt()  + "_" + Thread.currentThread().getId(); // clientName: "DFSClient_NONMAPREDUCE_随机数_threadId
+    provider = DFSUtil.createKeyProvider(conf); // 默认为null
     if (LOG.isDebugEnabled()) {
       if (provider == null) {
         LOG.debug("No KeyProvider found.");
@@ -640,7 +644,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
     }
     int numResponseToDrop = conf.getInt(
         DFSConfigKeys.DFS_CLIENT_TEST_DROP_NAMENODE_RESPONSE_NUM_KEY,
-        DFSConfigKeys.DFS_CLIENT_TEST_DROP_NAMENODE_RESPONSE_NUM_DEFAULT);
+        DFSConfigKeys.DFS_CLIENT_TEST_DROP_NAMENODE_RESPONSE_NUM_DEFAULT); // 默认值为0
     NameNodeProxies.ProxyAndInfo<ClientProtocol> proxyInfo = null;
     AtomicBoolean nnFallbackToSimpleAuth = new AtomicBoolean(false);
     // 默认值为0
@@ -666,42 +670,46 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
     } else {
       Preconditions.checkArgument(nameNodeUri != null,
           "null URI");
-      // 创建proxyInfo对象，该对象的参数proxy会赋值给namenode
+      // 创建proxyInfo对象，该对象的参数proxy会赋值给namenode， HA与NO-HA对应不同的proxyInfo
       proxyInfo = NameNodeProxies.createProxy(conf, nameNodeUri,
           ClientProtocol.class, nnFallbackToSimpleAuth);
       this.dtService = proxyInfo.getDelegationTokenService();
-      // 将proxyInfo的属性proxy赋值给namenode
+      // 将proxyInfo的属性proxy赋值给namenode，即namenode是与NameNode进行通信的proxy
       this.namenode = proxyInfo.getProxy();
     }
 
     String localInterfaces[] =
-      conf.getTrimmedStrings(DFSConfigKeys.DFS_CLIENT_LOCAL_INTERFACES);
+      conf.getTrimmedStrings(DFSConfigKeys.DFS_CLIENT_LOCAL_INTERFACES); // 默认为空
     localInterfaceAddrs = getLocalInterfaceAddrs(localInterfaces);
     if (LOG.isDebugEnabled() && 0 != localInterfaces.length) {
       LOG.debug("Using local interfaces [" +
       Joiner.on(',').join(localInterfaces)+ "] with addresses [" +
       Joiner.on(',').join(localInterfaceAddrs) + "]");
     }
-    
+    // 初始化caching相关属性，readDropBehind：当读操作完成时，系统缓存中的数据是否立即清除，默认为false
     Boolean readDropBehind = (conf.get(DFS_CLIENT_CACHE_DROP_BEHIND_READS) == null) ?
         null : conf.getBoolean(DFS_CLIENT_CACHE_DROP_BEHIND_READS, false);
+    // 初始化caching相关属性，readahead：Datanode读取时(使用了系统调用posix+fadvise), 预读取字节数，默认为0
     Long readahead = (conf.get(DFS_CLIENT_CACHE_READAHEAD) == null) ?
         null : conf.getLong(DFS_CLIENT_CACHE_READAHEAD, 0);
     Boolean writeDropBehind = (conf.get(DFS_CLIENT_CACHE_DROP_BEHIND_WRITES) == null) ?
         null : conf.getBoolean(DFS_CLIENT_CACHE_DROP_BEHIND_WRITES, false);
+    // 读写缓存策略，传入上面的四个参数
     this.defaultReadCachingStrategy =
         new CachingStrategy(readDropBehind, readahead);
     this.defaultWriteCachingStrategy =
         new CachingStrategy(writeDropBehind, readahead);
+    // 创建客户端上下文
     this.clientContext = ClientContext.get(
         conf.get(DFS_CLIENT_CONTEXT, DFS_CLIENT_CONTEXT_DEFAULT),
         dfsClientConf);
+    // 初始化hedgedRead相关属性
     this.hedgedReadThresholdMillis = conf.getLong(
         DFSConfigKeys.DFS_DFSCLIENT_HEDGED_READ_THRESHOLD_MILLIS,
-        DFSConfigKeys.DEFAULT_DFSCLIENT_HEDGED_READ_THRESHOLD_MILLIS);
+        DFSConfigKeys.DEFAULT_DFSCLIENT_HEDGED_READ_THRESHOLD_MILLIS); // 默认值500
     int numThreads = conf.getInt(
         DFSConfigKeys.DFS_DFSCLIENT_HEDGED_READ_THREADPOOL_SIZE,
-        DFSConfigKeys.DEFAULT_DFSCLIENT_HEDGED_READ_THREADPOOL_SIZE);
+        DFSConfigKeys.DEFAULT_DFSCLIENT_HEDGED_READ_THREADPOOL_SIZE); // 默认值0
     if (numThreads > 0) {
       this.initThreadsNumForHedgedReads(numThreads);
     }
@@ -814,6 +822,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
   /** Get a lease and start automatic renewal */
   private void beginFileLease(final long inodeId, final DFSOutputStream out)
       throws IOException {
+    // getLeaseRenewer()获取LeaseRenewer对象，该对象负责更新客户端的租约，put方法中会起一个线程负责更新租约
     getLeaseRenewer().put(inodeId, out, this);
   }
 
@@ -959,10 +968,13 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
   public synchronized void close() throws IOException {
     try {
       if(clientRunning) {
+        // 关闭所有正在进行写操作的IO流
         closeAllFilesBeingWritten(false);
+        // 将标识位置为false，停止对外提供服务
         clientRunning = false;
+        // 停止租约
         getLeaseRenewer().closeClient(this);
-        // close connections to the namenode
+        // close connections to the namenode 关闭与namenode的rpc连接
         closeConnectionToNamenode();
       }
     } finally {
@@ -1080,7 +1092,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
       }
       return cached;
     }
-    
+    // 判断addr是不是本地地址
     boolean local = NetUtils.isLocalAddress(addr);
 
     if (LOG.isTraceEnabled()) {
@@ -1203,6 +1215,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
   
   public LocatedBlocks getLocatedBlocks(String src, long start)
       throws IOException {
+    // prefetchSize默认值：10*128*1024*1024 = 1342177280， 即默认是10个block的大小，即默认获取10个block的位置信息
     return getLocatedBlocks(src, start, dfsClientConf.prefetchSize);
   }
 
@@ -1212,7 +1225,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
    */
   @VisibleForTesting
   public LocatedBlocks getLocatedBlocks(String src, long start, long length)
-      throws IOException {
+      throws IOException { // 继续调用
     return callGetBlockLocations(namenode, src, start, length);
   }
 
@@ -1223,6 +1236,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
       String src, long start, long length) 
       throws IOException {
     try {
+      // 调用ClientProtocol.getBlockLocation()方法获取文件对应的数据块的位置信息。length指明了获取数据块的范围
       return namenode.getBlockLocations(src, start, length);
     } catch(RemoteException re) {
       throw re.unwrapRemoteException(AccessControlException.class,
@@ -1499,8 +1513,8 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
    */
   public DFSInputStream open(String src, int buffersize, boolean verifyChecksum)
       throws IOException, UnresolvedLinkException {
-    checkOpen();
-    //    Get block info from namenode
+    checkOpen(); // 检查DFSClient的运行状况
+    //    Get block info from namenode 调用DFSInputStream的构造方法并返回
     return new DFSInputStream(this, src, buffersize, verifyChecksum);
   }
 
@@ -1654,6 +1668,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
                              int buffersize,
                              ChecksumOpt checksumOpt,
                              InetSocketAddress[] favoredNodes) throws IOException {
+    // 检查客户端是否已经打开
     checkOpen();
     if (permission == null) {
       permission = FsPermission.getFileDefault();
@@ -1671,10 +1686,12 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
                          + favoredNodes[i].getPort();
       }
     }
+    // 创建DFSOutputStream对象
     final DFSOutputStream result = DFSOutputStream.newStreamForCreate(this,
         src, masked, flag, createParent, replication, blockSize, progress,
         buffersize, dfsClientConf.createChecksum(checksumOpt),
         favoredNodeStrs);
+    // 得到输出流，也就得到了该file的lease，得到lease之后就应该起个线程对其进行续约
     beginFileLease(result.getFileId(), result);
     return result;
   }
@@ -1897,8 +1914,10 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
    */
   public void rename(String src, String dst, Options.Rename... options)
       throws IOException {
+    // 检查DFSClient的运行情况
     checkOpen();
     try {
+      // 调用ClientProtoool.rename2()方法发起重命名请求
       namenode.rename2(src, dst, options);
     } catch(RemoteException re) {
       throw re.unwrapRemoteException(AccessControlException.class,
@@ -2637,6 +2656,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
    */
   long rollEdits() throws AccessControlException, IOException {
     try {
+      // 通过ClientProtocol接口触发namenode进行rollEdits操作
       return namenode.rollEdits();
     } catch(RemoteException re) {
       throw re.unwrapRemoteException(AccessControlException.class);
@@ -2852,7 +2872,7 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
   // just reports checksum failure and ignores any exception during the report.
   void reportChecksumFailure(String file, LocatedBlock lblocks[]) {
     try {
-      reportBadBlocks(lblocks);
+      reportBadBlocks(lblocks); // 向NN汇报坏块
     } catch (IOException ie) {
       LOG.info("Found corruption while reading " + file
           + ". Error repairing corrupt blocks. Bad blocks remain.", ie);

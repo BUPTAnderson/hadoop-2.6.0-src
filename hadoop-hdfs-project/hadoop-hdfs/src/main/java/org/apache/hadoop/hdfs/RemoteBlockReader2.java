@@ -98,7 +98,7 @@ public class RemoteBlockReader2  implements BlockReader {
   private long lastSeqNo = -1;
 
   /** offset in block where reader wants to actually read */
-  private long startOffset;
+  private long startOffset; // 要读取的位置在block中的偏移量(不是在整个文件中的偏移量)，比如block中的起始位置偏移量为0
   private final String filename;
 
   private final int bytesPerChecksum;
@@ -141,21 +141,23 @@ public class RemoteBlockReader2  implements BlockReader {
         randomId.toString(), this.filename,
         this.datanodeID.getHostName()));
     }
-
+    // 初次调用时，curDataSlice为null。一个curDataSlice相当于一个packet
     if (curDataSlice == null || curDataSlice.remaining() == 0 && bytesNeededToFinish > 0) {
+      // 获取下一个packet的数据
       readNextPacket();
     }
 
     if (LOG.isTraceEnabled()) {
       LOG.trace(String.format("Finishing read #" + randomId));
     }
-
+    // 当前curDataSlice中的数据为0，说明已经读取完当前block
     if (curDataSlice.remaining() == 0) {
       // we're at EOF now
       return -1;
     }
     
     int nRead = Math.min(curDataSlice.remaining(), len);
+    // 从curDataSlice中读取数据到buf中
     curDataSlice.get(buf, off, nRead);
     
     return nRead;
@@ -165,8 +167,10 @@ public class RemoteBlockReader2  implements BlockReader {
   @Override
   public int read(ByteBuffer buf) throws IOException {
     if (curDataSlice == null || curDataSlice.remaining() == 0 && bytesNeededToFinish > 0) {
+      // 读取下一个数据包，将数据包中的数据部分存入curDataSlice变量中
       readNextPacket();
     }
+    //
     if (curDataSlice.remaining() == 0) {
       // we're at EOF now
       return -1;
@@ -175,6 +179,7 @@ public class RemoteBlockReader2  implements BlockReader {
     int nRead = Math.min(curDataSlice.remaining(), buf.remaining());
     ByteBuffer writeSlice = curDataSlice.duplicate();
     writeSlice.limit(writeSlice.position() + nRead);
+    // 将curDataSlice的数据写入buf
     buf.put(writeSlice);
     curDataSlice.position(writeSlice.position());
 
@@ -183,10 +188,16 @@ public class RemoteBlockReader2  implements BlockReader {
 
   private void readNextPacket() throws IOException {
     //Read packet headers.
+    // read时packet是基本的传输单位，每个packet(默认每个packet为64K(短路读), 4K(远程读))由若干个chunk组成(默认512Byte)，每个chunk对应一个chunksum(默认4Byte)。
+    // receiveNextPacket方法是从输入流in(datanode)中读取一个packet
     packetReceiver.receiveNextPacket(in);
 
+    // 将packetReceiver构造的PacketHeader对象curHeader赋值给curHeader
     PacketHeader curHeader = packetReceiver.getHeader();
+    // 把packet的数据赋值给curDataSlice
     curDataSlice = packetReceiver.getDataSlice();
+    // curHeader.getDataLen()是从反序列化的HEADER对应的potobuf对象获取的packet中data部分的长度(data的长度是protobuf对象的一个参数)，curDataSlice是packet中data部分的数据
+    // 通常情况下每个packet中数据长度为64k，即curDataSlice.capacity() == curHeader.getDataLen() = 65536
     assert curDataSlice.capacity() == curHeader.getDataLen();
     
     if (LOG.isTraceEnabled()) {
@@ -194,34 +205,42 @@ public class RemoteBlockReader2  implements BlockReader {
     }
 
     // Sanity check the lengths
+    // lastSeqNo：刚刚处理完的packet在管道中的序列号，curHeader所在的packet的序列号要=lastSeqNo+1
     if (!curHeader.sanityCheck(lastSeqNo)) {
          throw new IOException("BlockReader: error in packet header " +
                                curHeader);
     }
     
     if (curHeader.getDataLen() > 0) {
+      // bytesPerChecksum 多少字节一个checkcum
+      // curHeader.getDataLen得到数据data的长度，然后得出需要多少个chunks，bytesPerChecksum默认是512Bytes
       int chunks = 1 + (curHeader.getDataLen() - 1) / bytesPerChecksum;
+      // 得出checksum的长度，checksumSize默认4Byte
       int checksumsLen = chunks * checksumSize;
 
       assert packetReceiver.getChecksumSlice().capacity() == checksumsLen :
         "checksum slice capacity=" + packetReceiver.getChecksumSlice().capacity() + 
           " checksumsLen=" + checksumsLen;
-      
+
+      // 设置lastSeqNo为当前要读取的packet的seqno
       lastSeqNo = curHeader.getSeqno();
       if (verifyChecksum && curDataSlice.remaining() > 0) {
         // N.B.: the checksum error offset reported here is actually
         // relative to the start of the block, not the start of the file.
         // This is slightly misleading, but preserves the behavior from
         // the older BlockReader.
+        // 利用checksum检查数据是否正确
         checksum.verifyChunkedSums(curDataSlice,
             packetReceiver.getChecksumSlice(),
             filename, curHeader.getOffsetInBlock());
       }
+      // 要读取的数据量减去当前获取的packet中的data部分数据长度
       bytesNeededToFinish -= curHeader.getDataLen();
     }    
     
     // First packet will include some data prior to the first byte
     // the user requested. Skip it.
+    // 如果当前获取到的packet起始位置在整个block中的偏移量小于要读取的startOffset，则将curDataSlice的位置移动到startOffset对应的位置
     if (curHeader.getOffsetInBlock() < startOffset) {
       int newPos = (int) (startOffset - curHeader.getOffsetInBlock());
       curDataSlice.position(newPos);
@@ -229,7 +248,9 @@ public class RemoteBlockReader2  implements BlockReader {
 
     // If we've now satisfied the whole client read, read one last packet
     // header, which should be empty
+    // bytesNeededToFinish是表示还需要读多少字节，如果<=0，说明数据已经读取完毕，则调用readTrailingEmptyPacket继续从datanode读取一个packet，这个packet肯定是一个空packet。
     if (bytesNeededToFinish <= 0) {
+      // 读取结束
       readTrailingEmptyPacket();
       if (verifyChecksum) {
         sendReadResult(Status.CHECKSUM_OK);
@@ -294,9 +315,10 @@ public class RemoteBlockReader2  implements BlockReader {
     // the amount that the user wants (bytesToRead), plus the padding at
     // the beginning in order to chunk-align. Note that the DN may elect
     // to send more than this amount if the read starts/ends mid-chunk.
+    // 初始化bytesNeededToFinish，即要读取多少字节
     this.bytesNeededToFinish = bytesToRead + (startOffset - firstChunkOffset);
-    bytesPerChecksum = this.checksum.getBytesPerChecksum();
-    checksumSize = this.checksum.getChecksumSize();
+    bytesPerChecksum = this.checksum.getBytesPerChecksum(); // 默认512
+    checksumSize = this.checksum.getChecksumSize(); // 默认4
   }
 
 
@@ -395,26 +417,37 @@ public class RemoteBlockReader2  implements BlockReader {
                                      PeerCache peerCache,
                                      CachingStrategy cachingStrategy) throws IOException {
     // in and out will be closed when sock is closed (by the caller)
+    // 使用Socket建立写入流
     final DataOutputStream out = new DataOutputStream(new BufferedOutputStream(
           peer.getOutputStream()));
+    // 向DataNode发送读指令， DN会将返回数据写入到peer.getInputStream()
     new Sender(out).readBlock(block, blockToken, clientName, startOffset, len,
         verifyChecksum, cachingStrategy);
 
     //
     // Get bytes in block
-    //
+    // 封装读取流
     DataInputStream in = new DataInputStream(peer.getInputStream());
-
+    // 从输入流中读取DN返回的数据，正常读取的话status值为：
+    // status: SUCCESS
+    // readOpChecksumInfo {
+    //  checksum {
+    //    type: CHECKSUM_CRC32C
+    //    bytesPerChecksum: 512
+    //  }
+    //  chunkOffset: 0
+    //}
     BlockOpResponseProto status = BlockOpResponseProto.parseFrom(
         PBHelper.vintPrefixed(in));
     checkSuccess(status, peer, block, file);
     ReadOpChecksumInfoProto checksumInfo =
       status.getReadOpChecksumInfo();
+    // 默认情况下： DataChecksum(type=CRC32C, chunkSize=512)
     DataChecksum checksum = DataTransferProtoUtil.fromProto(
         checksumInfo.getChecksum());
     //Warning when we get CHECKSUM_NULL?
 
-    // Read the first chunk offset.
+    // Read the first chunk offset. 第一个块，firstChunkOffset=0
     long firstChunkOffset = checksumInfo.getChunkOffset();
 
     if ( firstChunkOffset < 0 || firstChunkOffset > startOffset ||

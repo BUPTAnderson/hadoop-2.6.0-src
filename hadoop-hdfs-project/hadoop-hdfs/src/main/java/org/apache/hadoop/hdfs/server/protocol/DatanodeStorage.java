@@ -22,6 +22,7 @@ import org.apache.hadoop.hdfs.StorageType;
 import java.util.UUID;
 
 /**
+ * datanode上的一个存储目录，是为了实现异构存储，不同的存储目录可以是不同的存储类型
  * Class captures information of a storage in Datanode.
  */
 public class DatanodeStorage {

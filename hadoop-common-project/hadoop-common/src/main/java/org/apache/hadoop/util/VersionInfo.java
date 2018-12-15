@@ -40,6 +40,7 @@ public class VersionInfo {
 
   protected VersionInfo(String component) {
     info = new Properties();
+    // 读取文件common-version-info.properties， 正常编译成功的话，这个文件的属性值会被替换为实际的参数， 比如version值为2.6.0
     String versionInfoFile = component + "-version-info.properties";
     InputStream is = null;
     try {

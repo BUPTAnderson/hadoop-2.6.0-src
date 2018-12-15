@@ -31,10 +31,16 @@ import org.apache.hadoop.fs.FileEncryptionInfo;
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public class LocatedBlocks {
+  // 这一批block所在的文件的总长度(注意不是这一批block的长度和)，如果最后一个block是BlockInfoUnderConstruction，则fileLength不包括最后一个block的长度
   private final long fileLength;
+  // 一批Block的LocatedBlock信息，LocatedBlock封装了包含block副本的DN信息以及block的元数据(block在文件中的偏移量，是否已损坏，是否缓存在内存中，token等)
+  // 默认是10个block，并不是文件所有的block
   private final List<LocatedBlock> blocks; // array of blocks with prioritized locations
+  // 表示这些block所属的文件是否有正在创建的block
   private final boolean underConstruction;
+  // 表示这些block所属的文件的最后一个block
   private LocatedBlock lastLocatedBlock = null;
+  // 标识最后一个block是否完成
   private boolean isLastBlockComplete = false;
   private FileEncryptionInfo fileEncryptionInfo = null;
 
@@ -115,10 +121,12 @@ public class LocatedBlocks {
    */
   public int findBlock(long offset) {
     // create fake block of size 0 as a key
+    // 创建一个LocatedBlock对象，便于和LocatedBlocks中的block进行比较
     LocatedBlock key = new LocatedBlock(
         new ExtendedBlock(), new DatanodeInfo[0], 0L, false);
     key.setStartOffset(offset);
     key.getBlock().setNumBytes(1);
+    // 创建一个比较器
     Comparator<LocatedBlock> comp = 
       new Comparator<LocatedBlock>() {
         // Returns 0 iff a is inside b or b is inside a
@@ -136,12 +144,23 @@ public class LocatedBlocks {
           return 1;
         }
       };
+    // 调用Collections的二分查找, 找到的话返回index，没找到的话返回(-插入点 -1)
     return Collections.binarySearch(blocks, key, comp);
   }
-  
+
+  /**
+   * 比如：blockIdx = 3, newBlocks: [51, 60] [61, 70] [71, 80] [82, 90] [91, 100]  blocks: [0, 10] [11, 20] [21, 30] [71, 80] [81, 90]
+   * [x, y]表示一个block的起始和结束的偏移量，由于多次查询数据，可能会造成blocks中的block并不是连续的
+   * 执行完下面的方法，blocks会变成：
+   * [0, 10] [11, 20] [21, 30] [51, 60] [61, 70] [71, 80] [81, 90] [91, 100]
+   * @param blockIdx
+   * @param newBlocks
+   */
   public void insertRange(int blockIdx, List<LocatedBlock> newBlocks) {
     int oldIdx = blockIdx;
     int insStart = 0, insEnd = 0;
+    // 这里主要考虑一种情况是客户端随机读取，经过几次读取后，客户端的LocatedBlocks中缓存的block可能是不联系的[2-11]、[15-24],
+    // 找到目标block在newBlocks中的索引
     for(int newIdx = 0; newIdx < newBlocks.size() && oldIdx < blocks.size(); 
                                                         newIdx++) {
       long newOff = newBlocks.get(newIdx).getStartOffset();
@@ -162,6 +181,7 @@ public class LocatedBlocks {
       }
     }
     insEnd = newBlocks.size();
+    // 将大于目标block的blocks插入缓存中
     if(insStart < insEnd) { // insert new blocks
       blocks.addAll(oldIdx, newBlocks.subList(insStart, insEnd));
     }

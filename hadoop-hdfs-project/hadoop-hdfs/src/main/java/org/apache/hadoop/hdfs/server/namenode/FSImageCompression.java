@@ -75,6 +75,7 @@ class FSImageCompression {
    */
   static FSImageCompression createCompression(Configuration conf)
     throws IOException {
+    // 默认值是false
     boolean compressImage = conf.getBoolean(
       DFSConfigKeys.DFS_IMAGE_COMPRESS_KEY,
       DFSConfigKeys.DFS_IMAGE_COMPRESS_DEFAULT);

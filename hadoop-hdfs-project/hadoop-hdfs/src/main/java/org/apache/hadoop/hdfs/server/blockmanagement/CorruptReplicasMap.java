@@ -39,13 +39,13 @@ public class CorruptReplicasMap{
   /** The corruption reason code */
   public static enum Reason {
     NONE,                // not specified.
-    ANY,                 // wildcard reason
-    GENSTAMP_MISMATCH,   // mismatch in generation stamps
-    SIZE_MISMATCH,       // mismatch in sizes
-    INVALID_STATE,       // invalid state
-    CORRUPTION_REPORTED  // client or datanode reported the corruption
+    ANY,                 // wildcard reason 通配情况
+    GENSTAMP_MISMATCH,   // mismatch in generation stamps // datanode上副本的时间戳与namenode上的数据块的时间戳不一致
+    SIZE_MISMATCH,       // mismatch in sizes // datanode上数据块的大小与namenode上数据块的大小不一致
+    INVALID_STATE,       // invalid state // 无效的状态
+    CORRUPTION_REPORTED  // client or datanode reported the corruption // 客户端或数据节点汇报
   }
-
+  // <Block, <DatanodeDescriptor(namenode中对datanode的抽象), 副本损坏的原因>>
   private final SortedMap<Block, Map<DatanodeDescriptor, Reason>> corruptReplicasMap =
     new TreeMap<Block, Map<DatanodeDescriptor, Reason>>();
 

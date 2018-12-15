@@ -56,7 +56,7 @@ public class DataBlockScanner implements Runnable {
    * when a BPOfferService becomes alive or dies.
    */
   private final TreeMap<String, BlockPoolSliceScanner> blockPoolScannerMap = 
-    new TreeMap<String, BlockPoolSliceScanner>();
+    new TreeMap<String, BlockPoolSliceScanner>(); // <blockpoolID -> BlockPoolSliceScanner>, 每个BlockPoolSliceScanner负责验证一个指定块池下数据块的正确性
   Thread blockScannerThread = null;
   
   DataBlockScanner(DataNode datanode,
@@ -69,48 +69,48 @@ public class DataBlockScanner implements Runnable {
   
   @Override
   public void run() {
-    String currentBpId = "";
-    boolean firstRun = true;
-    while (datanode.shouldRun && !Thread.interrupted()) {
-      //Sleep everytime except in the first iteration.
+    String currentBpId = ""; // 当前块池ID，默认为空
+    boolean firstRun = true; // 第一次运行标志，默认当然应该为true
+    while (datanode.shouldRun && !Thread.interrupted()) { // 如果所属数据节点DataNode实例datanode正常运行，且当前线程没有被中断
+      //Sleep everytime except in the first iteration. 除了第一次调用外，每次睡眠5s
       if (!firstRun) {
         try {
           Thread.sleep(SLEEP_PERIOD_MS);
         } catch (InterruptedException ex) {
-          // Interrupt itself again to set the interrupt status
+          // Interrupt itself again to set the interrupt status // 如果发生InterruptedException异常，中断blockScannerThread线程，然后跳过，继续下一轮循环
           blockScannerThread.interrupt();
           continue;
         }
       } else {
-        firstRun = false;
+        firstRun = false; // 第一次运行时先将firstRun标志设置为false
       }
-      
+      // 每个BlockPoolSliceScanner负责检查一个块池下面数据块的正确性， 调用getNextBPScanner选出最长时间没有更新的BlockPoolSliceScanner
       BlockPoolSliceScanner bpScanner = getNextBPScanner(currentBpId);
-      if (bpScanner == null) {
+      if (bpScanner == null) { // 如果bpScanner为null，跳过，继续下一轮循环
         // Possible if thread is interrupted
         continue;
       }
-      currentBpId = bpScanner.getBlockPoolId();
-      // If BPOfferService for this pool is not alive, don't process it
+      currentBpId = bpScanner.getBlockPoolId(); // 设置当前块池ID，即currentBpId，从块池切片扫描器BlockPoolSliceScanner实例bpScanner中获取
+      // If BPOfferService for this pool is not alive, don't process it 如果块池对应的BPOfferService对象不再响应，则移除对应的块池。
       if (!datanode.isBPServiceAlive(currentBpId)) {
         LOG.warn("Block Pool " + currentBpId + " is not alive");
         // Remove in case BP service died abruptly without proper shutdown
         removeBlockPool(currentBpId);
         continue;
       }
-      bpScanner.scanBlockPoolSlice();
+      bpScanner.scanBlockPoolSlice(); // 调用块池切片扫描器BlockPoolSliceScanner实例bpScanner的scanBlockPoolSlice()方法，扫描块池下存储的所有数据，进行数据块校验
     }
 
-    // Call shutdown for each allocated BlockPoolSliceScanner.
+    // Call shutdown for each allocated BlockPoolSliceScanner. 完成执行逻辑后，会关闭所有的BlockPoolSliceScanner对象
     for (BlockPoolSliceScanner bpss: blockPoolScannerMap.values()) {
-      bpss.shutdown();
+      bpss.shutdown(); // 挨个调用对应shutdown()方法，停止块池切片扫描器BlockPoolSliceScanner
     }
   }
 
   // Wait for at least one block pool to be up
   private void waitForInit() {
     while ((getBlockPoolSetSize() < datanode.getAllBpOs().length)
-        || (getBlockPoolSetSize() < 1)) {
+        || (getBlockPoolSetSize() < 1)) { // 当前DataBlockScanner保存的blockpool个数小于datanode上blockpool个数不同或者当前DataBlockScanner保存的blockpool个数为0，则睡眠等待
       try {
         Thread.sleep(SLEEP_PERIOD_MS);
       } catch (InterruptedException e) {
@@ -132,11 +132,11 @@ public class DataBlockScanner implements Runnable {
     
     String nextBpId = null;
     while (datanode.shouldRun && !blockScannerThread.isInterrupted()) {
-      waitForInit();
+      waitForInit(); // 等待初始化完毕
       synchronized (this) {
         if (getBlockPoolSetSize() > 0) {          
           // Find nextBpId by the minimum of the last scan time
-          long lastScanTime = 0;
+          long lastScanTime = 0; // lastScanTime用于记录上次扫描时间
           for (String bpid : blockPoolScannerMap.keySet()) {
             final long t = getBPScanner(bpid).getLastScanTime();
             if (t != 0L) {
@@ -294,9 +294,9 @@ public class DataBlockScanner implements Runnable {
   }
 
   public void start() {
-    blockScannerThread = new Thread(this);
-    blockScannerThread.setDaemon(true);
-    blockScannerThread.start();
+    blockScannerThread = new Thread(this); // 基于DataBlockScanner实例创建一个线程blockScannerThread
+    blockScannerThread.setDaemon(true); // 将线程blockScannerThread设置为后台线程
+    blockScannerThread.start(); // 启动线程blockScannerThread
   }
   
   @InterfaceAudience.Private

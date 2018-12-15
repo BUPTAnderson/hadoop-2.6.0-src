@@ -33,8 +33,8 @@ import org.apache.hadoop.classification.InterfaceStability;
 @InterfaceStability.Evolving
 public abstract class EditLogOutputStream implements Closeable {
   // these are statistics counters
-  private long numSync;        // number of sync(s) to disk
-  private long totalTimeSync;  // total time to sync
+  private long numSync;        // number of sync(s) to disk //文件同步的次数，可以理解为就是缓冲写入的次数
+  private long totalTimeSync;  // total time to sync //同步写入的总时间计数
 
   public EditLogOutputStream() throws IOException {
     numSync = totalTimeSync = 0;
@@ -108,11 +108,11 @@ public abstract class EditLogOutputStream implements Closeable {
   }
   
   public void flush(boolean durable) throws IOException {
-    numSync++;
+    numSync++; //同步次数加1
     long start = now();
-    flushAndSync(durable);
+    flushAndSync(durable); //刷出同步方法为抽象方法，由继承的子类具体
     long end = now();
-    totalTimeSync += (end - start);
+    totalTimeSync += (end - start); //同时进行耗时的累加
   }
 
   /**

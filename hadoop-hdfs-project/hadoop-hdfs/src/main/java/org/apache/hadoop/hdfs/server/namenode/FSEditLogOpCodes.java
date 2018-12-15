@@ -27,8 +27,8 @@ import org.apache.hadoop.classification.InterfaceStability;
 @InterfaceStability.Unstable
 public enum FSEditLogOpCodes {
   // last op code in file
-  OP_ADD                        ((byte)  0),
-  OP_RENAME_OLD                 ((byte)  1), // deprecated operation
+  OP_ADD                        ((byte)  0), // 添加操作
+  OP_RENAME_OLD                 ((byte)  1), // deprecated operation 重命名操作
   OP_DELETE                     ((byte)  2),
   OP_MKDIR                      ((byte)  3),
   OP_SET_REPLICATION            ((byte)  4),
@@ -75,7 +75,7 @@ public enum FSEditLogOpCodes {
   OP_SET_STORAGE_POLICY         ((byte) 45),
 
   // Note that the current range of the valid OP code is 0~127
-  OP_INVALID                    ((byte) -1);
+  OP_INVALID                    ((byte) -1);  // 不合法的操作
 
   private final byte opCode;
 

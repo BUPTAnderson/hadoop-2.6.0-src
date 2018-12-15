@@ -441,7 +441,7 @@ public class ImageServlet extends HttpServlet {
     params.put(IMAGE_FILE_TYPE, nnf.name());
     return params;
   }
-
+  // 接收standbyNN发送过来的合并后的fsimage文件
   @Override
   protected void doPut(final HttpServletRequest request,
       final HttpServletResponse response) throws ServletException, IOException {
@@ -497,7 +497,7 @@ public class ImageServlet extends HttpServlet {
                   }
                   // Now that we have a new checkpoint, we might be able to
                   // remove some old ones.
-                  nnImage.purgeOldStorage(nnf);
+                  nnImage.purgeOldStorage(nnf); // 删除旧的fsimage和editlog文件
                 } finally {
                   stream.close();
                 }

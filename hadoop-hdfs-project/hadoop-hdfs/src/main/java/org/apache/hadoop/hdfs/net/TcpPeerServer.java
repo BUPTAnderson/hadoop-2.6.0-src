@@ -61,7 +61,7 @@ public class TcpPeerServer implements PeerServer {
       //
       // TCP_NODELAY disables nagling and thus avoids this performance
       // disaster.
-      socket.setTcpNoDelay(true);
+      socket.setTcpNoDelay(true); // Socket设置为No_Delay
       SocketChannel channel = socket.getChannel();
       if (channel == null) {
         peer = new BasicInetPeer(socket);

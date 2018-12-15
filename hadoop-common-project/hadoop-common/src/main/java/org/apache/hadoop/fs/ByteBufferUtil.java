@@ -57,9 +57,12 @@ public final class ByteBufferUtil {
           "were not available, and you did not provide a fallback " +
           "ByteBufferPool.");
     }
+    // 判断stream是否支持将数据读入ByteBuffer Read(实现了ByteBufferReadable接口)
     boolean useDirect = streamHasByteBufferRead(stream);
+    // 调用ByteBufferPool构造一个ByteBuffer
     ByteBuffer buffer = bufferPool.getBuffer(useDirect, maxLength);
     if (buffer == null) {
+      // ByteBufferPool无法构造ByteBuffer
       throw new UnsupportedOperationException("zero-copy reads " +
           "were not available, and the ByteBufferPool did not provide " +
           "us with " + (useDirect ? "a direct" : "an indirect") +
@@ -70,7 +73,7 @@ public final class ByteBufferUtil {
     maxLength = Math.min(maxLength, buffer.capacity());
     boolean success = false;
     try {
-      if (useDirect) {
+      if (useDirect) { // 支持
         buffer.clear();
         buffer.limit(maxLength);
         ByteBufferReadable readable = (ByteBufferReadable)stream;
@@ -80,6 +83,7 @@ public final class ByteBufferUtil {
             success = true;
             break;
           }
+          // 直接调用stream上支持ByteBuffer Read的函数
           int nRead = readable.read(buffer);
           if (nRead < 0) {
             if (totalRead > 0) {
@@ -90,8 +94,9 @@ public final class ByteBufferUtil {
           totalRead += nRead;
         }
         buffer.flip();
-      } else {
+      } else { // 不支持
         buffer.clear();
+        // 调用InputSteam.read(byte[])方法
         int nRead = stream.read(buffer.array(),
             buffer.arrayOffset(), maxLength);
         if (nRead >= 0) {

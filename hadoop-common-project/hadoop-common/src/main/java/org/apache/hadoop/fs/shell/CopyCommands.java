@@ -264,6 +264,7 @@ class CopyCommands {
         copyStreamToTarget(System.in, getTargetPath(args.get(0)));
         return;
       }
+      // //处理完参数后，所有重要的逻辑这个方法入口的里边。
       super.processArguments(args);
     }
   }

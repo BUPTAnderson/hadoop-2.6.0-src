@@ -166,26 +166,28 @@ public class DirectorySnapshottableFeature extends DirectoryWithSnapshotFeature 
   /** Add a snapshot. */
   public Snapshot addSnapshot(INodeDirectory snapshotRoot, int id, String name)
       throws SnapshotException, QuotaExceededException {
-    //check snapshot quota
+    //check snapshot quota 每个目录下,会有快照总数的限制.默认的snapshotQuota是2的16次方
     final int n = getNumSnapshots();
     if (n + 1 > snapshotQuota) {
       throw new SnapshotException("Failed to add snapshot: there are already "
           + n + " snapshot(s) and the snapshot quota is "
           + snapshotQuota);
     }
+    // 新建Snapshot对象类, 会在快照目录下的隐藏目录./snapshot下创建目标快照
     final Snapshot s = new Snapshot(id, name, snapshotRoot);
     final byte[] nameBytes = s.getRoot().getLocalNameBytes();
+    // 检查是否已经存在同名的快照,如果有则抛异常
     final int i = searchSnapshot(nameBytes);
     if (i >= 0) {
       throw new SnapshotException("Failed to add snapshot: there is already a "
           + "snapshot with the same name \"" + Snapshot.getSnapshotName(s) + "\".");
     }
-
+    // 将此目录的改动记录加入到diff列表中
     final DirectoryDiff d = getDiffs().addDiff(id, snapshotRoot);
     d.setSnapshotRoot(s.getRoot());
     snapshotsByNames.add(-i - 1, s);
 
-    // set modification time
+    // set modification time 更新快照目录的最近修改时间
     final long now = Time.now();
     snapshotRoot.updateModificationTime(now, Snapshot.CURRENT_STATE_ID);
     s.getRoot().setModificationTime(now, Snapshot.CURRENT_STATE_ID);

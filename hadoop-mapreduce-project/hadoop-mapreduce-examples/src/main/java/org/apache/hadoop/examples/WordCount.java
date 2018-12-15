@@ -77,7 +77,9 @@ public class WordCount {
     job.setMapperClass(TokenizerMapper.class);
     job.setCombinerClass(IntSumReducer.class);
     job.setReducerClass(IntSumReducer.class);
+    // key class
     job.setOutputKeyClass(Text.class);
+    // value class
     job.setOutputValueClass(IntWritable.class);
     for (int i = 0; i < otherArgs.length - 1; ++i) {
       FileInputFormat.addInputPath(job, new Path(otherArgs[i]));

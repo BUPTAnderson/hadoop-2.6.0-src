@@ -232,11 +232,13 @@ public class DirectoryWithSnapshotFeature implements INode.Feature {
 
         private List<INode> initChildren() {
           if (children == null) {
+            // 获取变更的孩子信息
             final ChildrenDiff combined = new ChildrenDiff();
             for (DirectoryDiff d = DirectoryDiff.this; d != null; 
                 d = d.getPosterior()) {
               combined.combinePosterior(d.diff, null);
             }
+            // 与当前的目录INode信息融合,构成新的子节点列表
             children = combined.apply2Current(ReadOnlyList.Util.asList(
                 currentDir.getChildrenList(Snapshot.CURRENT_STATE_ID)));
           }
@@ -588,7 +590,9 @@ public class DirectoryWithSnapshotFeature implements INode.Feature {
    */
   public ReadOnlyList<INode> getChildrenList(INodeDirectory currentINode,
       final int snapshotId) {
+    // 根据快照Id取出对应的目录变更对象信息
     final DirectoryDiff diff = diffs.getDiffById(snapshotId);
+    // 如果变更目录对象为空则直接返回当前目录的孩子信息,否则从变更对象diff中获取子节点列表
     return diff != null ? diff.getChildrenList(currentINode) : currentINode
         .getChildrenList(Snapshot.CURRENT_STATE_ID);
   }

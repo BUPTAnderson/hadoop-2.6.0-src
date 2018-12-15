@@ -63,7 +63,7 @@ import com.google.protobuf.ServiceException;
 public class DatanodeProtocolServerSideTranslatorPB implements
     DatanodeProtocolPB {
 
-  private final DatanodeProtocol impl;
+  private final DatanodeProtocol impl; // impl实际是NameNodeRpcServer
   private static final ErrorReportResponseProto
       VOID_ERROR_REPORT_RESPONSE_PROTO = 
           ErrorReportResponseProto.newBuilder().build();
@@ -89,7 +89,7 @@ public class DatanodeProtocolServerSideTranslatorPB implements
         .getRegistration());
     DatanodeRegistration registrationResp;
     try {
-      registrationResp = impl.registerDatanode(registration);
+      registrationResp = impl.registerDatanode(registration); // 调用NameNodeRpcServer对象的对应方法
     } catch (IOException e) {
       throw new ServiceException(e);
     }

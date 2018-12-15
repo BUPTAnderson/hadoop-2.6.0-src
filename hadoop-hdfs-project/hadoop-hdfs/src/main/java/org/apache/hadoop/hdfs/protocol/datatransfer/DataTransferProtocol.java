@@ -54,13 +54,13 @@ public interface DataTransferProtocol {
    * Read a block.
    * 
    * @param blk the block being read.
-   * @param blockToken security token for accessing the block.
+   * @param blockToken security token for accessing the block. 数据块的访问令牌
    * @param clientName client's name.
-   * @param blockOffset offset of the block.
-   * @param length maximum number of bytes for this read.
+   * @param blockOffset offset of the block. 要读取数据在数据块中的位置/偏移量
+   * @param length maximum number of bytes for this read. 读取数据的长度
    * @param sendChecksum if false, the DN should skip reading and sending
-   *        checksums
-   * @param cachingStrategy  The caching strategy to use.
+   *        checksums Datanode是否发送校验数据，如果为false，则Datanode不发送校验数据。这里要特别注意，数据块的读取校验工作是在客户端完成的，客户端会将校验结果返回给Datanode
+   * @param cachingStrategy  The caching strategy to use. 缓存策略
    */
   public void readBlock(final ExtendedBlock blk,
       final Token<BlockTokenIdentifier> blockToken,

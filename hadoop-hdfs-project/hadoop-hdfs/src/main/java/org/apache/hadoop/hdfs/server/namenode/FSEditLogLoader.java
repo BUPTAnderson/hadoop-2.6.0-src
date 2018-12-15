@@ -137,7 +137,7 @@ public class FSEditLogLoader {
       long startTime = now();
       FSImage.LOG.info("Start loading edits file " + edits.getName());
       long numEdits = loadEditRecords(edits, false, expectedStartingTxId,
-          startOpt, recovery);
+          startOpt, recovery); // 继续调用loadEditRecords来解析某个edits log文件
       FSImage.LOG.info("Edits file " + edits.getName() 
           + " of size " + edits.length() + " edits # " + numEdits 
           + " loaded in " + (now()-startTime)/1000 + " seconds");
@@ -181,6 +181,7 @@ public class FSEditLogLoader {
     try {
       while (true) {
         try {
+          // 从editlog读取一个操作
           FSEditLogOp op;
           try {
             op = in.readOp();
@@ -205,15 +206,15 @@ public class FSEditLogLoader {
             continue;
           }
           recentOpcodeOffsets[(int)(numEdits % recentOpcodeOffsets.length)] =
-            in.getPosition();
+            in.getPosition(); // 保存最近处理的4条记录的偏移量
           if (op.hasTransactionId()) {
-            if (op.getTransactionId() > expectedTxId) { 
+            if (op.getTransactionId() > expectedTxId) { // 说明txid不连续，出现了间隙
               MetaRecoveryContext.editLogLoaderPrompt("There appears " +
                   "to be a gap in the edit log.  We expected txid " +
                   expectedTxId + ", but got txid " +
                   op.getTransactionId() + ".", recovery, "ignoring missing " +
                   " transaction IDs");
-            } else if (op.getTransactionId() < expectedTxId) { 
+            } else if (op.getTransactionId() < expectedTxId) { // 小于期望的txid，则跳过
               MetaRecoveryContext.editLogLoaderPrompt("There appears " +
                   "to be an out-of-order edit in the edit log.  We " +
                   "expected txid " + expectedTxId + ", but got txid " +
@@ -227,6 +228,7 @@ public class FSEditLogLoader {
               LOG.trace("op=" + op + ", startOpt=" + startOpt
                   + ", numEdits=" + numEdits + ", totalEdits=" + totalEdits);
             }
+            // 在当前命名空间中执行对应的修改操作
             long inodeId = applyEditLogOp(op, fsDir, startOpt,
                 in.getVersion(true), lastInodeId);
             if (lastInodeId < inodeId) {
@@ -248,8 +250,8 @@ public class FSEditLogLoader {
           // applied, update our bookkeeping.
           incrOpCount(op.opCode, opCounts, step, counter);
           if (op.hasTransactionId()) {
-            lastAppliedTxId = op.getTransactionId();
-            expectedTxId = lastAppliedTxId + 1;
+            lastAppliedTxId = op.getTransactionId(); // 更新已经解析到内存的lastAppliedTxId
+            expectedTxId = lastAppliedTxId + 1; // 更新期望的下一条记录的txid
           } else {
             expectedTxId = lastAppliedTxId = expectedStartingTxId;
           }
@@ -264,8 +266,8 @@ public class FSEditLogLoader {
               lastLogTime = now;
             }
           }
-          numEdits++;
-          totalEdits++;
+          numEdits++; // 更新当前处理的某个edit log处理了的记录的数量
+          totalEdits++; // 更新所有edit log处理了记录的数量
         } catch (RollingUpgradeOp.RollbackException e) {
           LOG.info("Stopped at OP_START_ROLLING_UPGRADE for rollback.");
           break;
@@ -276,7 +278,7 @@ public class FSEditLogLoader {
         }
       }
     } finally {
-      fsNamesys.resetLastInodeId(lastInodeId);
+      fsNamesys.resetLastInodeId(lastInodeId); // 重置fsNamesys的inodeId
       if(closeOnExit) {
         in.close();
       }

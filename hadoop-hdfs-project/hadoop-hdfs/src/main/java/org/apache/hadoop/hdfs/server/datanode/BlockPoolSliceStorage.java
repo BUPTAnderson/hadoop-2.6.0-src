@@ -49,7 +49,7 @@ import java.util.regex.Pattern;
 
 /**
  * Manages storage for the set of BlockPoolSlices which share a particular 
- * block pool id, on this DataNode.
+ * block pool id, on this DataNode. 管理当前datanode节点上单个块池的存储目录，比如/Users/momo/software/hadoop-2.6.0/hadoop-data1/current/BP-1298850809-172.16.99.10-1525839474746，/Users/momo/software/hadoop-2.6.0/hadoop-data2/current/BP-1298850809-172.16.99.10-1525839474746 着两个目录属于同一个块池
  * 
  * This class supports the following functionality:
  * <ol>
@@ -140,7 +140,7 @@ public class BlockPoolSliceStorage extends Storage {
       Collection<File> dataDirs, StartupOption startOpt) throws IOException {
     LOG.info("Analyzing storage directories for bpid " + nsInfo.getBlockPoolID());
     Set<String> existingStorageDirs = new HashSet<String>();
-    for (int i = 0; i < getNumStorageDirs(); i++) {
+    for (int i = 0; i < getNumStorageDirs(); i++) { // 初次调用getNumStorageDirs()返回0
       existingStorageDirs.add(getStorageDir(i).getRoot().getAbsolutePath());
     }
 
@@ -158,7 +158,7 @@ public class BlockPoolSliceStorage extends Storage {
       StorageDirectory sd = new StorageDirectory(dataDir, null, true);
       StorageState curState;
       try {
-        curState = sd.analyzeStorage(startOpt, this);
+        curState = sd.analyzeStorage(startOpt, this); // 检查目录状态， 初次调用返回的是NOT_FORMATTED
         // sd is locked but not opened
         switch (curState) {
         case NORMAL:
@@ -171,7 +171,7 @@ public class BlockPoolSliceStorage extends Storage {
         case NOT_FORMATTED: // format
           LOG.info("Storage directory " + dataDir + " is not formatted.");
           LOG.info("Formatting ...");
-          format(sd, nsInfo);
+          format(sd, nsInfo); // 格式化, 写入VERSION文件，比如hadoop-data1/current/BP-1298850809-172.16.99.10-1525839474746/current/VERSION，hadoop-data2/current/BP-1298850809-172.16.99.10-1525839474746/current/VERSION
           break;
         default: // recovery part is common
           sd.doRecover(curState);
@@ -200,7 +200,7 @@ public class BlockPoolSliceStorage extends Storage {
     }
 
     // 3. Update all storages. Some of them might have just been formatted.
-    this.writeAll();
+    this.writeAll(); // 将参数写入hadoop-data1/current/BP-38265890-172.16.199.10-1527073441544/current下的VERSION文件中，如果文件存在会覆盖写入
   }
 
   /**
@@ -309,10 +309,10 @@ public class BlockPoolSliceStorage extends Storage {
       // Restore all the files in the trash. The restored files are retained
       // during rolling upgrade rollback. They are deleted during rolling
       // upgrade downgrade.
-      int restored = restoreBlockFilesFromTrash(getTrashRootDir(sd));
+      int restored = restoreBlockFilesFromTrash(getTrashRootDir(sd)); // 初次调用，restored为0
       LOG.info("Restored " + restored + " block files from trash.");
     }
-    readProperties(sd);
+    readProperties(sd); // 读取VERSION文件中的参数
     checkVersionUpgradable(this.layoutVersion);
     assert this.layoutVersion >= HdfsConstants.DATANODE_LAYOUT_VERSION 
        : "Future version is not allowed";

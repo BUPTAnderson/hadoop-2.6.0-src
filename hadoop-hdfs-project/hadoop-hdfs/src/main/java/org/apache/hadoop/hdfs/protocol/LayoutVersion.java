@@ -279,10 +279,12 @@ public class LayoutVersion {
    * Get the current layout version
    */
   public static int getCurrentLayoutVersion(LayoutFeature[] features) {
+    // 调用NameNodeLayoutVersion.Feature的getInfo()方法，然后调用getLayoutVersion()， 这里返回的是BLOCK_STORAGE_POLICY(-60, "Block Storage policy");第一个参数的值，即-60
     return getLastNonReservedFeature(features).getInfo().getLayoutVersion();
   }
 
   static LayoutFeature getLastNonReservedFeature(LayoutFeature[] features) {
+    // 先取最后一个feature(NameNodeLayoutVersion.Feature)，是BLOCK_STORAGE_POLICY(-60, "Block Storage policy")， 最后一个feature的isReservedForOldRelease返回的是false， 所以直接返回这个feature
     for (int i = features.length -1; i >= 0; i--) {
       final FeatureInfo info = features[i].getInfo();
       if (!info.isReservedForOldRelease()) {

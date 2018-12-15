@@ -90,9 +90,9 @@ public class Block implements Writable, Comparable<Block> {
     return m.matches() ? Long.parseLong(m.group(1)) : 0;
   }
 
-  private long blockId;
-  private long numBytes;
-  private long generationStamp;
+  private long blockId; // block的id， 比如blk_1073741889_1065, 该block的blockId为1073741889
+  private long numBytes; // 大小
+  private long generationStamp; // 时间戳， 比如blk_1073741889_1065, 该block的时间戳为1065
 
   public Block() {this(0, 0, 0);}
 

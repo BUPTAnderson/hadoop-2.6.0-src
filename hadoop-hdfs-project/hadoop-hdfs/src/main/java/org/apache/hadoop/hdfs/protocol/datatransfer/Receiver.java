@@ -55,6 +55,7 @@ public abstract class Receiver implements DataTransferProtocol {
 
   /** Read an Op.  It also checks protocol version. */
   protected final Op readOp() throws IOException {
+    // 从数据流中读入DataTransferProtocol版本号，并与当前版本号进行对比
     final short version = in.readShort();
     if (version != DataTransferProtocol.DATA_TRANSFER_VERSION) {
       throw new IOException( "Version Mismatch (Expected: " +
@@ -66,11 +67,11 @@ public abstract class Receiver implements DataTransferProtocol {
 
   /** Process op by the corresponding method. */
   protected final void processOp(Op op) throws IOException {
-    switch(op) {
-    case READ_BLOCK:
+    switch(op) { // 根据不同的Op操作码调用指定的方法响应
+    case READ_BLOCK: // 读数据块操作
       opReadBlock();
       break;
-    case WRITE_BLOCK:
+    case WRITE_BLOCK: // 写数据块操作
       opWriteBlock(in);
       break;
     case REPLACE_BLOCK:
@@ -109,10 +110,12 @@ public abstract class Receiver implements DataTransferProtocol {
 
   /** Receive OP_READ_BLOCK */
   private void opReadBlock() throws IOException {
+    // 从IO流中读取被序列化的调用readBlock()方法的参数
     OpReadBlockProto proto = OpReadBlockProto.parseFrom(vintPrefixed(in));
     TraceScope traceScope = continueTraceSpan(proto.getHeader(),
         proto.getClass().getSimpleName());
     try {
+      //反序列化参数，然后调用子类DataXceiver的readBlock方法执行读取操作
       readBlock(PBHelper.convert(proto.getHeader().getBaseHeader().getBlock()),
         PBHelper.convert(proto.getHeader().getBaseHeader().getToken()),
         proto.getHeader().getClientName(),
@@ -133,7 +136,7 @@ public abstract class Receiver implements DataTransferProtocol {
     final DatanodeInfo[] targets = PBHelper.convert(proto.getTargetsList());
     TraceScope traceScope = continueTraceSpan(proto.getHeader(),
         proto.getClass().getSimpleName());
-    try {
+    try { // 调用的是DataXceiver.writeBlock()
       writeBlock(PBHelper.convert(proto.getHeader().getBaseHeader().getBlock()),
           PBHelper.convertStorageType(proto.getStorageType()),
           PBHelper.convert(proto.getHeader().getBaseHeader().getToken()),
@@ -145,7 +148,7 @@ public abstract class Receiver implements DataTransferProtocol {
           proto.getPipelineSize(),
           proto.getMinBytesRcvd(), proto.getMaxBytesRcvd(),
           proto.getLatestGenerationStamp(),
-          fromProto(proto.getRequestedChecksum()),
+          fromProto(proto.getRequestedChecksum()), // 获取checksum的类型和咩哥checksum的长度
           (proto.hasCachingStrategy() ?
               getCachingStrategy(proto.getCachingStrategy()) :
             CachingStrategy.newDefaultStrategy()),

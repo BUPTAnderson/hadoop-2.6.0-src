@@ -43,7 +43,7 @@ public class LongBitFormat implements Serializable {
     OFFSET = previous == null? 0: previous.OFFSET + previous.LENGTH;
     LENGTH = length;
     MIN = min;
-    MAX = ((-1L) >>> (64 - LENGTH));
+    MAX = ((-1L) >>> (64 - LENGTH)); // MAX是LENGTH个1
     MASK = MAX << OFFSET;
   }
 

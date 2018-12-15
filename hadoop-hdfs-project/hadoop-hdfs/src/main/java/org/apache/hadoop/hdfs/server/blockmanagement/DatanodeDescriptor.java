@@ -62,7 +62,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
 
   // Stores status of decommissioning.
   // If node is not decommissioning, do not use this object for anything.
-  public final DecommissioningStatus decommissioningStatus = new DecommissioningStatus();
+  public final DecommissioningStatus decommissioningStatus = new DecommissioningStatus(); // 记录撤销操作时节点的状态(只在datannode处于撤销状态时使用)
   
   /** Block and targets pair */
   @InterfaceAudience.Private
@@ -114,6 +114,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
     }
   }
 
+  // <storageID, DatanodeStorageInfo>, DatanodeStorageInfo抽象了一个存储目录，一个datanode可以配置多个存储目录，并且支持存储目录异构存储类型
   private final Map<String, DatanodeStorageInfo> storageMap = 
       new HashMap<String, DatanodeStorageInfo>();
 
@@ -146,12 +147,14 @@ public class DatanodeDescriptor extends DatanodeInfo {
   }
 
   /**
+   * 所有在当前datanode上等待缓存的数据块
    * The blocks which we want to cache on this DataNode.
    */
   private final CachedBlocksList pendingCached = 
       new CachedBlocksList(this, CachedBlocksList.Type.PENDING_CACHED);
 
   /**
+   * 所有当前datanode上以及缓存的数据块
    * The blocks which we know are cached on this datanode.
    * This list is updated by periodic cache reports.
    */
@@ -159,6 +162,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
       new CachedBlocksList(this, CachedBlocksList.Type.CACHED);
 
   /**
+   * 所有等待取消缓存的数据块
    * The blocks which we want to uncache on this DataNode.
    */
   private final CachedBlocksList pendingUncached = 
@@ -184,7 +188,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
 
   // isAlive == heartbeats.contains(this)
   // This is an optimization, because contains takes O(n) time on Arraylist
-  public boolean isAlive = false;
+  public boolean isAlive = false; // 当前datanode是否有效
   public boolean needKeyUpdate = false;
 
   
@@ -197,14 +201,17 @@ public class DatanodeDescriptor extends DatanodeInfo {
   private long bandwidth;
 
   /** A queue of blocks to be replicated by this datanode */
-  private final BlockQueue<BlockTargetPair> replicateBlocks = new BlockQueue<BlockTargetPair>();
+  // BlockTargetPair类包含了要被复制的数据块以及复制操作的目标数据节点(列表)两项信息
+  private final BlockQueue<BlockTargetPair> replicateBlocks = new BlockQueue<BlockTargetPair>(); // 该节点上需要被复制到其它节点的数据块，blockManager.getDatanodeManager().handleHeartbeat方法中会调用DatanodeDescriptor.getReplicationCommand方法来获取该对象
   /** A queue of blocks to be recovered by this datanode */
   private final BlockQueue<BlockInfoUnderConstruction> recoverBlocks =
-                                new BlockQueue<BlockInfoUnderConstruction>();
+                                new BlockQueue<BlockInfoUnderConstruction>(); // 该节点需要恢复的块的队列，blockManager.getDatanodeManager().handleHeartbeat方法中会调用DatanodeDescriptor.getLeaseRecoveryCommand(Integer.MAX_VALUE)来获取该对象
   /** A set of blocks to be invalidated by this datanode */
-  private final LightWeightHashSet<Block> invalidateBlocks = new LightWeightHashSet<Block>();
+  private final LightWeightHashSet<Block> invalidateBlocks = new LightWeightHashSet<Block>(); // 该节点上需要删除的数据块， blockManager.getDatanodeManager().handleHeartbeat方法中会调用DatanodeDescriptor..getInvalidateBlocks(blockInvalidateLimit)方法来获取该对象
 
-  /* Variables for maintaining number of blocks scheduled to be written to
+  /* 下面几个遍历用于估计Datanode的负载，在写文件操作分配数据块或进行数据块复制时，根据节点负载信息
+   * 选择比较空闲的节点作为目标节点
+   * Variables for maintaining number of blocks scheduled to be written to
    * this storage. This count is approximate and might be slightly bigger
    * in case of errors (e.g. datanode does not report if an error occurs
    * while writing the block).
@@ -384,7 +391,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
     boolean checkFailedStorages = (volFailures > this.volumeFailures) ||
         !heartbeatedSinceRegistration;
 
-    if (checkFailedStorages) {
+    if (checkFailedStorages) { // 默认每种storage都是失效的，然后如果上报这个storage的信息，再去掉这个storage.
       LOG.info("Number of failed storage changes from "
           + this.volumeFailures + " to " + volFailures);
       failedStorageInfos = new HashSet<DatanodeStorageInfo>(
@@ -394,11 +401,11 @@ public class DatanodeDescriptor extends DatanodeInfo {
     setCacheCapacity(cacheCapacity);
     setCacheUsed(cacheUsed);
     setXceiverCount(xceiverCount);
-    setLastUpdate(Time.now());    
+    setLastUpdate(Time.now());    // 设置lastUpdate为当前时间，即心跳时间
     this.volumeFailures = volFailures;
     for (StorageReport report : reports) {
-      DatanodeStorageInfo storage = updateStorage(report.getStorage());
-      if (checkFailedStorages) {
+      DatanodeStorageInfo storage = updateStorage(report.getStorage()); // 更新datanode发送过来的DatanodeStorage
+      if (checkFailedStorages) { // 每一个上报的storage代表这个storage正常工作。
         failedStorageInfos.remove(storage);
       }
 
@@ -408,24 +415,24 @@ public class DatanodeDescriptor extends DatanodeInfo {
       totalBlockPoolUsed += report.getBlockPoolUsed();
       totalDfsUsed += report.getDfsUsed();
     }
-    rollBlocksScheduled(getLastUpdate());
+    rollBlocksScheduled(getLastUpdate()); // 调用
 
     // Update total metrics for the node.
     setCapacity(totalCapacity);
     setRemaining(totalRemaining);
     setBlockPoolUsed(totalBlockPoolUsed);
     setDfsUsed(totalDfsUsed);
-    if (checkFailedStorages) {
+    if (checkFailedStorages) { // 更新failed的目录
       updateFailedStorage(failedStorageInfos);
     }
   }
 
   private void updateFailedStorage(
       Set<DatanodeStorageInfo> failedStorageInfos) {
-    for (DatanodeStorageInfo storageInfo : failedStorageInfos) {
+    for (DatanodeStorageInfo storageInfo : failedStorageInfos) { // failedStorageInfos是上次汇报的所有存储目录减去这次汇报的存储目录，剩余的存储目录这次没有汇报，说明这个目录failed了
       if (storageInfo.getState() != DatanodeStorage.State.FAILED) {
         LOG.info(storageInfo + " failed.");
-        storageInfo.setState(DatanodeStorage.State.FAILED);
+        storageInfo.setState(DatanodeStorage.State.FAILED); // 因为这个目录这次心跳没有汇报，说明这个目录failed了，需要将这个目录的状态改为FAILED
       }
     }
   }
@@ -530,6 +537,11 @@ public class DatanodeDescriptor extends DatanodeInfo {
     }
   }
 
+  /**
+   * 获取该datanode上需要执行的数据块复制操作
+   * @param maxTransfers
+   * @return
+   */
   public List<BlockTargetPair> getReplicationCommand(int maxTransfers) {
     return replicateBlocks.poll(maxTransfers);
   }
@@ -599,7 +611,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
   }
   
   /** Adjusts curr and prev number of blocks scheduled every few minutes. */
-  private void rollBlocksScheduled(long now) {
+  private void rollBlocksScheduled(long now) { // 默认计算10分钟内该datanode每种存储类型被安排写数据块的次数
     if (now - lastBlocksScheduledRollTime > BLOCKS_SCHEDULED_ROLL_INTERVAL) {
       prevApproxBlocksScheduled.set(currApproxBlocksScheduled);
       currApproxBlocksScheduled.reset();
@@ -751,8 +763,8 @@ public class DatanodeDescriptor extends DatanodeInfo {
         // not include these fields so we may have assumed defaults.
         // This check can be removed in the next major release after
         // 2.4.
-        storage.updateFromStorage(s);
-        storageMap.put(storage.getStorageID(), storage);
+        storage.updateFromStorage(s); // 将状态更新为datanode汇报过来的状态
+        storageMap.put(storage.getStorageID(), storage); // 更新
       }
       return storage;
     }

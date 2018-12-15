@@ -824,7 +824,7 @@ public class NativeIO {
         throw new IOException("renameTo(src=" + src + ", dst=" +
           dst + ") failed.");
       }
-    } else {
+    } else { // 执行else中的逻辑
       renameTo0(src.getAbsolutePath(), dst.getAbsolutePath());
     }
   }

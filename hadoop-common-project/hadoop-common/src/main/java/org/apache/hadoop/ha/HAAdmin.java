@@ -251,9 +251,11 @@ public abstract class HAAdmin extends Configured implements Tool {
 
   private int failover(CommandLine cmd)
       throws IOException, ServiceFailedException {
+    // 解析命令行是否开启了forceFence以及forceActive
     boolean forceFence = cmd.hasOption(FORCEFENCE);
     boolean forceActive = cmd.hasOption(FORCEACTIVE);
 
+    // 解析源节点以及目标节点
     int numOpts = cmd.getOptions() == null ? 0 : cmd.getOptions().length;
     final String[] args = cmd.getArgs();
 
@@ -272,7 +274,8 @@ public abstract class HAAdmin extends Configured implements Tool {
           toNode.isAutoFailoverEnabled(),
           "Inconsistent auto-failover configs between %s and %s!",
           fromNode, toNode);
-    
+
+    // 如果是自动切换模式，则不可以设置forceFence以及forceActive
     if (fromNode.isAutoFailoverEnabled()) {
       if (forceFence || forceActive) {
         // -forceActive doesn't make sense with auto-HA, since, if the node
@@ -287,7 +290,8 @@ public abstract class HAAdmin extends Configured implements Tool {
       }
       return gracefulFailoverThroughZKFCs(toNode);
     }
-    
+
+    // 构造FailoverController对象并调用failover方法执行切换操作
     FailoverController fc = new FailoverController(getConf(),
         requestSource);
     

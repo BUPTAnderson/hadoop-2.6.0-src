@@ -205,7 +205,7 @@ public class FsDatasetCache {
   }
 
   /**
-   * The total cache capacity in bytes.
+   * The total cache capacity in bytes. 对应配置项：dfs.datanode.max.locked.memory，默认是0
    */
   private final long maxBytes;
 
@@ -258,10 +258,12 @@ public class FsDatasetCache {
    */
   synchronized List<Long> getCachedBlocks(String bpid) {
     List<Long> blocks = new ArrayList<Long>();
+    // 遍历FsDataSetCache.mappableBlockMap字段中保存的所有缓存数据块
     for (Iterator<Entry<ExtendedBlockId, Value>> iter =
         mappableBlockMap.entrySet().iterator(); iter.hasNext(); ) {
       Entry<ExtendedBlockId, Value> entry = iter.next();
       if (entry.getKey().getBlockPoolId().equals(bpid)) {
+        // 如果缓存数据块的状态为CACHED，则加入blocks集合中
         if (entry.getValue().state.shouldAdvertise()) {
           blocks.add(entry.getKey().getBlockId());
         }

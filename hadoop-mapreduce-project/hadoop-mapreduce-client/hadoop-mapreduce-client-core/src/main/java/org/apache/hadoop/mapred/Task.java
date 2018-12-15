@@ -1260,6 +1260,7 @@ abstract public class Task implements Writable, Configurable {
     } else {
       this.conf = new JobConf(conf);
     }
+    // map输出本地缓存，默认为 org.apache.hadoop.mapred.MROutputFiles
     this.mapOutputFile = ReflectionUtils.newInstance(
         conf.getClass(MRConfig.TASK_LOCAL_OUTPUT_CLASS,
           MROutputFiles.class, MapOutputFile.class), conf);

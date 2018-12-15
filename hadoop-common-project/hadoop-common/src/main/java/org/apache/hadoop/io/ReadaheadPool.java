@@ -112,7 +112,7 @@ public class ReadaheadPool {
     // in the previous readahead. This gives the system time
     // to satisfy the readahead before we start reading the data.
     long nextOffset = lastOffset + readaheadLength / 2; 
-    if (curPos >= nextOffset) {
+    if (curPos >= nextOffset) { // 只有在上一次预读取的数据已经使用了一半时，才会触发一次新的预读取
       // cancel any currently pending readahead, to avoid
       // piling things up in the queue. Each reader should have at most
       // one outstanding request in the queue.
@@ -128,7 +128,8 @@ public class ReadaheadPool {
         // we've reached the end of the stream
         return null;
       }
-      
+
+      // 调用，创建任务触发预读取
       return submitReadahead(identifier, fd, curPos, length);
     } else {
       return lastReadahead;
@@ -145,6 +146,7 @@ public class ReadaheadPool {
    */
   public ReadaheadRequest submitReadahead(
       String identifier, FileDescriptor fd, long off, long len) {
+    // 在Datanode.readaheadPool线程池中创建一个ReadaheadRequestImpl任务来执行预读取
     ReadaheadRequestImpl req = new ReadaheadRequestImpl(
         identifier, fd, off, len);
     pool.execute(req);
@@ -202,6 +204,7 @@ public class ReadaheadPool {
       // error below, and see that it's canceled, ignoring the error.
       // It's also possible that we'll end up requesting readahead on some
       // other FD, which may be wasted work, but won't cause a problem.
+      // 调用fadvise()系统调用完预读取
       try {
         NativeIO.POSIX.getCacheManipulator().posixFadviseIfPossible(identifier,
             fd, off, len, NativeIO.POSIX.POSIX_FADV_WILLNEED);

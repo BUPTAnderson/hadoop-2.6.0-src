@@ -50,6 +50,7 @@ public final class FSImageUtil {
 
   public static FileSummary loadSummary(RandomAccessFile file)
       throws IOException {
+    // 文件最后的FileSummaryLength占4个字节，这4个字节是一个整型，表示这个整型前面的FileSummary占的字节数
     final int FILE_LENGTH_FIELD_SIZE = 4;
     long fileLength = file.length();
     file.seek(fileLength - FILE_LENGTH_FIELD_SIZE);

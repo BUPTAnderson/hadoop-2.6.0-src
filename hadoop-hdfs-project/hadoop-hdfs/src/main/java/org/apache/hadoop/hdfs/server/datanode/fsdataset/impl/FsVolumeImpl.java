@@ -50,18 +50,20 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
  * The underlying volume used to store replica.
  * 
  * It uses the {@link FsDatasetImpl} object for synchronization.
+ *
+ * 管理Datanode一个存储目录下的所有数据块。由于一个存储目录可以存储多个块池的数据块，所以FsVolumeImpl会持有这个存储目录中保存的所有块池的BlockPoolSlice对象，见FsVolumeImpl的bpSlices对象
  */
 @InterfaceAudience.Private
 @VisibleForTesting
 public class FsVolumeImpl implements FsVolumeSpi {
-  private final FsDatasetImpl dataset;
-  private final String storageID;
-  private final StorageType storageType;
+  private final FsDatasetImpl dataset; // 这个字段主要用于加锁操作
+  private final String storageID; // 当前存储目录对应的StorageDirectory的storageID
+  private final StorageType storageType; // 存储目录类型
   private final Map<String, BlockPoolSlice> bpSlices
-      = new ConcurrentHashMap<String, BlockPoolSlice>();
-  private final File currentDir;    // <StorageDirectory>/current
-  private final DF usage;           
-  private final long reserved;
+      = new ConcurrentHashMap<String, BlockPoolSlice>();  // 当前FsVolumeImpl下所有BLockPoolSlice的引用，是blockPoolId -> BlockPoolSlice的映射
+  private final File currentDir;    // <StorageDirectory>/current 当前存储目录下current文件夹的引用
+  private final DF usage;           // 当前存储目录的磁盘使用情况
+  private final long reserved; // 当前存储目录的预留磁盘空间大小
 
   // Disk space reserved for open blocks.
   private AtomicLong reservedForRbw;
@@ -77,7 +79,7 @@ public class FsVolumeImpl implements FsVolumeSpi {
    * dfs.datanode.fsdatasetcache.max.threads.per.volume) to limit resource
    * contention.
    */
-  protected ThreadPoolExecutor cacheExecutor;
+  protected ThreadPoolExecutor cacheExecutor; // 线程池，用来处理添加到缓存中的新的数据块
   
   FsVolumeImpl(FsDatasetImpl dataset, String storageID, File currentDir,
       Configuration conf, StorageType storageType) throws IOException {
@@ -87,7 +89,7 @@ public class FsVolumeImpl implements FsVolumeSpi {
         DFSConfigKeys.DFS_DATANODE_DU_RESERVED_KEY,
         DFSConfigKeys.DFS_DATANODE_DU_RESERVED_DEFAULT);
     this.reservedForRbw = new AtomicLong(0L);
-    this.currentDir = currentDir; 
+    this.currentDir = currentDir; // current目录，比如：/Users/momo/software/hadoop-2.6.0/hadoop-data1/current
     File parent = currentDir.getParentFile();
     this.usage = new DF(parent, conf);
     this.storageType = storageType;
@@ -149,16 +151,16 @@ public class FsVolumeImpl implements FsVolumeSpi {
 
   long getDfsUsed() throws IOException {
     long dfsUsed = 0;
-    synchronized(dataset) {
+    synchronized(dataset) { // 将这个存储目录下面的所有块池的使用量求和
       for(BlockPoolSlice s : bpSlices.values()) {
-        dfsUsed += s.getDfsUsed();
+        dfsUsed += s.getDfsUsed(); // 将每个目录下块池目录的使用量加到dsUsed中，就是这个存储目录总的使用量。每个块池目录的使用量在初始化该BlockPoolSlice会设置，同时会有一个线程每十分钟更新这个块池目录下的使用量
       }
     }
     return dfsUsed;
   }
 
   long getBlockPoolUsed(String bpid) throws IOException {
-    return getBlockPoolSlice(bpid).getDfsUsed();
+    return getBlockPoolSlice(bpid).getDfsUsed(); // 获取该BlockPool对应的BlockPoolSlice的使用量
   }
   
   /**
@@ -188,9 +190,9 @@ public class FsVolumeImpl implements FsVolumeSpi {
 
   @Override
   public long getAvailable() throws IOException {
-    long remaining = getCapacity() - getDfsUsed() - reservedForRbw.get();
-    long available = usage.getAvailable();
-    if (remaining > available) {
+    long remaining = getCapacity() - getDfsUsed() - reservedForRbw.get(); // 剩余空间：Capacity - DfsUsed - reserved
+    long available = usage.getAvailable(); // 直接获取目录可用空间
+    if (remaining > available) { // 剩余空间大于可用空间的话，将剩余空间设置为可用空间(remaining理论上不能超过直接调用File.getUsableSpace()方法获取的目录可用空间)
       remaining = available;
     }
     return (remaining > 0) ? remaining : 0;
@@ -311,6 +313,7 @@ public class FsVolumeImpl implements FsVolumeSpi {
   void getVolumeMap(ReplicaMap volumeMap,
                     final RamDiskReplicaTracker ramDiskReplicaMap)
       throws IOException {
+    // 根据每个块池，加载每个块池目录下的blk
     for(BlockPoolSlice s : bpSlices.values()) {
       s.getVolumeMap(volumeMap, ramDiskReplicaMap);
     }
@@ -339,8 +342,8 @@ public class FsVolumeImpl implements FsVolumeSpi {
 
   void addBlockPool(String bpid, Configuration conf) throws IOException {
     File bpdir = new File(currentDir, bpid);
-    BlockPoolSlice bp = new BlockPoolSlice(bpid, this, bpdir, conf);
-    bpSlices.put(bpid, bp);
+    BlockPoolSlice bp = new BlockPoolSlice(bpid, this, bpdir, conf); // 初始化BlockPoolSlice对象，会创建finalized目录rbw目录
+    bpSlices.put(bpid, bp); // 放入bpSlices字段中保存
   }
   
   void shutdownBlockPool(String bpid) {

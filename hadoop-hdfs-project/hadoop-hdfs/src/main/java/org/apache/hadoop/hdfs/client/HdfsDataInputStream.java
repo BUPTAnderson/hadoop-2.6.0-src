@@ -39,7 +39,7 @@ import com.google.common.base.Preconditions;
 @InterfaceStability.Evolving
 public class HdfsDataInputStream extends FSDataInputStream {
   public HdfsDataInputStream(DFSInputStream in) throws IOException {
-    super(in);
+    super(in); // 调用父类FSDataInputStream的构造方法
   }
 
   public HdfsDataInputStream(CryptoInputStream in) throws IOException {

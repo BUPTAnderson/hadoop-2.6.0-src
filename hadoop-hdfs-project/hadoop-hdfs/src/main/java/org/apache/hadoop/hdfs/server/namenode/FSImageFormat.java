@@ -216,15 +216,16 @@ public class FSImageFormat {
 
       FileInputStream is = null;
       try {
-        is = new FileInputStream(file);
+        is = new FileInputStream(file); // 读取fsimage的输入流
         byte[] magic = new byte[FSImageUtil.MAGIC_HEADER.length];
         IOUtils.readFully(is, magic, 0, magic.length);
+        // 判断文件头是否是"HDFSIMG1", 如果是说明是protobuf序列化方式
         if (Arrays.equals(magic, FSImageUtil.MAGIC_HEADER)) {
           FSImageFormatProtobuf.Loader loader = new FSImageFormatProtobuf.Loader(
               conf, fsn, requireSameLayoutVersion);
           impl = loader;
-          loader.load(file);
-        } else {
+          loader.load(file); // 反序列化fsimage，并把解析后的数据设置到内存中
+        } else { // 否则构造FSImageFormat.Loader加载fsimage文件
           Loader loader = new Loader(conf, fsn);
           impl = loader;
           loader.load(file);

@@ -157,7 +157,7 @@ public class ScriptBasedMapping extends CachedDNSToSwitchMapping {
       super.setConf(conf);
       if (conf != null) {
         scriptName = conf.get(SCRIPT_FILENAME_KEY);
-        maxArgs = conf.getInt(SCRIPT_ARG_COUNT_KEY, DEFAULT_ARG_COUNT);
+        maxArgs = conf.getInt(SCRIPT_ARG_COUNT_KEY, DEFAULT_ARG_COUNT); // 由配置项net.topology.script.number.args决定，即拓扑脚本一次可以传入的参数的数量，每个参数都是一个IP
       } else {
         scriptName = null;
         maxArgs = 0;
@@ -177,17 +177,17 @@ public class ScriptBasedMapping extends CachedDNSToSwitchMapping {
       if (names.isEmpty()) {
         return m;
       }
-
+      // 没有配置脚步文件，则认为是"DEFAULT_RACK"
       if (scriptName == null) {
         for (String name : names) {
           m.add(NetworkTopology.DEFAULT_RACK);
         }
         return m;
       }
-
+      // 如果配置了拓扑脚本文件，则用脚本获取节点的机架信息
       String output = runResolveCommand(names, scriptName);
       if (output != null) {
-        StringTokenizer allSwitchInfo = new StringTokenizer(output);
+        StringTokenizer allSwitchInfo = new StringTokenizer(output); // 使用StringTokenizer把返回的字符串进行拆分，获取datanode对应的机架信息
         while (allSwitchInfo.hasMoreTokens()) {
           String switchInfo = allSwitchInfo.nextToken();
           m.add(switchInfo);
@@ -225,7 +225,7 @@ public class ScriptBasedMapping extends CachedDNSToSwitchMapping {
       }
       StringBuilder allOutput = new StringBuilder();
       int numProcessed = 0;
-      if (maxArgs < MIN_ALLOWABLE_ARGS) {
+      if (maxArgs < MIN_ALLOWABLE_ARGS) { // 配置的参数maxArgs小于MIN_ALLOWABLE_ARGS，抛出异常
         LOG.warn("Invalid value " + Integer.toString(maxArgs)
             + " for " + SCRIPT_ARG_COUNT_KEY + "; must be >= "
             + Integer.toString(MIN_ALLOWABLE_ARGS));
@@ -246,10 +246,10 @@ public class ScriptBasedMapping extends CachedDNSToSwitchMapping {
           dir = new File(userDir);
         }
         ShellCommandExecutor s = new ShellCommandExecutor(
-            cmdList.toArray(new String[cmdList.size()]), dir);
+            cmdList.toArray(new String[cmdList.size()]), dir); // 执行脚本
         try {
           s.execute();
-          allOutput.append(s.getOutput()).append(" ");
+          allOutput.append(s.getOutput()).append(" "); // 获取执行结果，比如：/I165 /I165， 因为可能要执行多次，所以这里最后append了一个空格
         } catch (Exception e) {
           LOG.warn("Exception running " + s, e);
           return null;

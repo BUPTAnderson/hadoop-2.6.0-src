@@ -107,7 +107,7 @@ public class SaslDataTransferServer {
         "SASL server doing encrypted handshake for peer = {}, datanodeId = {}",
         peer, datanodeId);
       return getEncryptedStreams(peer, underlyingOut, underlyingIn);
-    } else if (!UserGroupInformation.isSecurityEnabled()) {
+    } else if (!UserGroupInformation.isSecurityEnabled()) { // 默认security是false，执行下面的逻辑
       LOG.debug(
         "SASL server skipping handshake in unsecured configuration for "
         + "peer = {}, datanodeId = {}", peer, datanodeId);

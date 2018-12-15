@@ -710,7 +710,7 @@ public abstract class INode implements INodeAttributes, Diff.Element<byte[]> {
     return getPathComponents(getPathNames(path));
   }
 
-  /** Convert strings to byte arrays for path components. */
+  /** Convert strings to byte arrays for path components. */ // 将路径中的每一段中的每个字符专程对于的ascii码对于的数值
   static byte[][] getPathComponents(String[] strings) {
     if (strings.length == 0) {
       return new byte[][]{null};
@@ -726,7 +726,7 @@ public abstract class INode implements INodeAttributes, Diff.Element<byte[]> {
    * @throws AssertionError if the given path is invalid.
    * @return array of path components.
    */
-  public static String[] getPathNames(String path) {
+  public static String[] getPathNames(String path) { // 将path以'/'分割
     if (path == null || !path.startsWith(Path.SEPARATOR)) {
       throw new AssertionError("Absolute path required");
     }

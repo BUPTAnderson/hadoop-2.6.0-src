@@ -42,24 +42,24 @@ import static org.apache.hadoop.hdfs.DFSUtil.percent2String;
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public class DatanodeInfo extends DatanodeID implements Node {
-  private long capacity;
-  private long dfsUsed;
-  private long remaining;
-  private long blockPoolUsed;
-  private long cacheCapacity;
-  private long cacheUsed;
-  private long lastUpdate;
-  private int xceiverCount;
-  private String location = NetworkTopology.DEFAULT_RACK;
-  private String softwareVersion;
+  private long capacity; // 容量
+  private long dfsUsed; // 使用的空间
+  private long remaining; // 剩余空间
+  private long blockPoolUsed; // 数据块池使用量
+  private long cacheCapacity; // 缓存容量
+  private long cacheUsed; // 缓存使用量
+  private long lastUpdate; // 上次更新时间，上次收到心跳的时间
+  private int xceiverCount; // xceiver数量
+  private String location = NetworkTopology.DEFAULT_RACK; // 机架信息, 比如"/default-rack"
+  private String softwareVersion; // 软件版本号
   private List<String> dependentHostNames = new LinkedList<String>();
   
   
   // Datanode administrative states
   public enum AdminStates {
     NORMAL("In Service"), 
-    DECOMMISSION_INPROGRESS("Decommission In Progress"), 
-    DECOMMISSIONED("Decommissioned");
+    DECOMMISSION_INPROGRESS("Decommission In Progress"), // datanode处于撤销状态中
+    DECOMMISSIONED("Decommissioned"); // 已经撤销
 
     final String value;
 
@@ -80,7 +80,7 @@ public class DatanodeInfo extends DatanodeID implements Node {
     }
   }
 
-  protected AdminStates adminState;
+  protected AdminStates adminState; // datanodd目前处于的状态
 
   public DatanodeInfo(DatanodeInfo from) {
     super(from);

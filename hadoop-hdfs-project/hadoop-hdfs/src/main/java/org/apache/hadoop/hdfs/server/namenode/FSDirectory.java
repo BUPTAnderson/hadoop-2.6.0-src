@@ -98,6 +98,7 @@ import com.google.common.collect.Lists;
 import org.apache.hadoop.security.AccessControlException;
 
 /**
+ * 在namenode中，对于HDFS整个文件系统的namespace，也就是以 ”/” 为根的整个目录树的管理，就是通过FSDirectory来管理的。
  * Both FSDirectory and FSNamesystem manage the state of the namespace.
  * FSDirectory is a pure in-memory data structure, all of whose operations
  * happen entirely in memory. In contrast, FSNamesystem persists the operations
@@ -106,6 +107,7 @@ import org.apache.hadoop.security.AccessControlException;
  **/
 @InterfaceAudience.Private
 public class FSDirectory implements Closeable {
+  // 创建根节点
   private static INodeDirectory createRoot(FSNamesystem namesystem) {
     final INodeDirectory r = new INodeDirectory(
         INodeId.ROOT_INODE_ID,
@@ -137,19 +139,19 @@ public class FSDirectory implements Closeable {
   private final XAttr UNREADABLE_BY_SUPERUSER_XATTR =
       XAttrHelper.buildXAttr(SECURITY_XATTR_UNREADABLE_BY_SUPERUSER, null);
 
-  INodeDirectory rootDir;
-  private final FSNamesystem namesystem;
+  INodeDirectory rootDir; // 整个文件系统目录树的根节点
+  private final FSNamesystem namesystem; // namesystem的门面类，这个类主要支持对数据块进行操作的一些方法
   private volatile boolean skipQuotaCheck = false; //skip while consuming edits
   private final int maxComponentLength;
   private final int maxDirItems;
   private final int lsLimit;  // max list limit
   private final int contentCountLimit; // max content summary counts per run
-  private final INodeMap inodeMap; // Synchronized by dirLock
+  private final INodeMap inodeMap; // Synchronized by dirLock 记录根目录的所有INode，并维护INode Id -> INode的映射关系，即可以通过Inode id从INodeMap中获取INode对象
   private long yieldCount = 0; // keep track of lock yield count.
   private final int inodeXAttrsLimit; //inode xattrs max limit
 
   // lock to protect the directory and BlockMap
-  private final ReentrantReadWriteLock dirLock;
+  private final ReentrantReadWriteLock dirLock; // 对目录树及inodeMap字段操作的锁
 
   // utility methods to acquire and release read lock and write lock
   void readLock() {
@@ -191,7 +193,7 @@ public class FSDirectory implements Closeable {
    * Caches frequently used file names used in {@link INode} to reuse 
    * byte[] objects and reduce heap usage.
    */
-  private final NameCache<ByteArray> nameCache;
+  private final NameCache<ByteArray> nameCache; // 将HDFS上的文件名缓存下来，以降低byte[]的使用，并降低JVM heap的使用
 
   FSDirectory(FSNamesystem ns, Configuration conf) {
     this.dirLock = new ReentrantReadWriteLock(true); // fair
@@ -384,17 +386,19 @@ public class FSDirectory implements Closeable {
       final INodeFile fileINode = inodesInPath.getLastINode().asFile();
       Preconditions.checkState(fileINode.isUnderConstruction());
 
-      // check quota limits and updated space consumed
+      // check quota limits and updated space consumed 检查空间是否足够
       updateCount(inodesInPath, 0, fileINode.getBlockDiskspace(), true);
 
-      // associate new last block for the file
+      // associate new last block for the file 构造block对应的BlockInfo对象
       BlockInfoUnderConstruction blockInfo =
         new BlockInfoUnderConstruction(
             block,
             fileINode.getFileReplication(),
             BlockUCState.UNDER_CONSTRUCTION,
             targets);
+      // 使用blockManager将blockInfo对象加入到BlockManager.blocksMap字段中存储
       getBlockManager().addBlockCollection(blockInfo, fileINode);
+      // 将blockInfo对象添加到INodeFile对象的blocks字段中保存
       fileINode.addBlock(blockInfo);
 
       if(NameNode.stateChangeLog.isDebugEnabled()) {
@@ -861,6 +865,7 @@ public class FSDirectory implements Closeable {
       this.dst = dst;
       srcChild = srcIIP.getLastINode();
       srcChildName = srcChild.getLocalNameBytes();
+      // 判断源节点是否在快照中
       isSrcInSnapshot = srcChild.isInLatestSnapshot(
               srcIIP.getLatestSnapshotId());
       srcChildIsReference = srcChild.isReference();
@@ -877,7 +882,9 @@ public class FSDirectory implements Closeable {
       srcRefDstSnapshot = srcChildIsReference ? srcChild.asReference()
               .getDstSnapshotId() : Snapshot.CURRENT_STATE_ID;
       oldSrcCounts = Quota.Counts.newInstance();
+      // 如果源节点在快照中
       if (isSrcInSnapshot) {
+        // 调用replaceChild4ReferenceWithName方法构造WithName和WithCount对象，并将INodeDirectory中的srcINode对象全部替换为该对象，需要特别注意的是如果srcINode存在与快照diff对象的c-list列表中，也是需要替换的
         final INodeReference.WithName withName = srcIIP.getINode(-2).asDirectory()
                 .replaceChild4ReferenceWithName(srcChild, srcIIP.getLatestSnapshotId());
         withCount = (INodeReference.WithCount) withName.getReferredINode();
@@ -889,7 +896,7 @@ public class FSDirectory implements Closeable {
         // srcChild is reference but srcChild is not in latest snapshot
         withCount = (WithCount) srcChild.asReference().getReferredINode();
       } else {
-        withCount = null;
+        withCount = null; // 否则将withCount设置为null，也就是普通的重命名操作
       }
     }
 
@@ -899,15 +906,15 @@ public class FSDirectory implements Closeable {
       final byte[] dstChildName = dstIIP.getLastLocalName();
       final INode toDst;
       if (withCount == null) {
-        srcChild.setLocalName(dstChildName);
+        srcChild.setLocalName(dstChildName); // 普通情况，则直接添加源节点
         toDst = srcChild;
-      } else {
+      } else { // 要使用INodeReference机制的情况，则构造DstReference对象
         withCount.getReferredINode().setLocalName(dstChildName);
         int dstSnapshotId = dstIIP.getLatestSnapshotId();
         toDst = new INodeReference.DstReference(
                 dstParent.asDirectory(), withCount, dstSnapshotId);
       }
-      return addLastINodeNoQuotaCheck(dstIIP, toDst);
+      return addLastINodeNoQuotaCheck(dstIIP, toDst); // 将toDst节点添加到目标路径
     }
 
     void updateMtimeAndLease(long timestamp) throws QuotaExceededException {
@@ -1836,6 +1843,7 @@ public class FSDirectory implements Closeable {
       List<AclEntry> aclEntries, long timestamp)
       throws QuotaExceededException, AclException {
     assert hasWriteLock();
+    // 创建目标的目录节点 dir
     final INodeDirectory dir = new INodeDirectory(inodeId, name, permission,
         timestamp);
     if (addChild(inodesInPath, pos, dir, true)) {
@@ -2054,6 +2062,7 @@ public class FSDirectory implements Closeable {
     // editlog/fsimage during upgrade since /.reserved was a valid name in older
     // release. This may also be called when a user tries to create a file
     // or directory /.reserved.
+    // 检查路径是否与保留路径"/.reserved"冲突
     if (pos == 1 && inodes[0] == rootDir && isReservedName(child)) {
       throw new HadoopIllegalArgumentException(
           "File name \"" + child.getLocalName() + "\" is reserved and cannot "
@@ -2067,34 +2076,45 @@ public class FSDirectory implements Closeable {
     // The rename code disables the quota when it's restoring to the
     // original location becase a quota violation would cause the the item
     // to go "poof".  The fs limits must be bypassed for the same reason.
-    if (checkQuota) {
+    if (checkQuota) { // 检查是否有足够空间
+      // 限制节点名最大长度${dfs.namenode.fs-limits.max-component-length}，默认255
       verifyMaxComponentLength(child.getLocalNameBytes(), inodes, pos);
+      // 限制子节点最大数量${dfs.namenode.fs-limits.max-directory-items}，默认1024*1024
       verifyMaxDirItems(inodes, pos);
     }
-    // always verify inode name
+    // always verify inode name 检查INode名称
+    // 检查节点名是否与保留名".snapshot"冲突
     verifyINodeName(child.getLocalNameBytes());
-    
+
+    // 更新quota
     final Quota.Counts counts = child.computeQuotaUsage();
     updateCount(iip, pos,
         counts.get(Quota.NAMESPACE), counts.get(Quota.DISKSPACE), checkQuota);
+    // 判断是否是rename操作。如果child的父目录不为null（FSDirectory#unprotectedMkdir()中创建该节点时父目录为null），则认为是rename操作。如果是添加节点的操作，
+    // 则下面第7行INodeDirectory#addChild()添加节点成功后会将child的父目录置为parent，因此，再次进入FSDirectory#addChild()时必然是rename操作。
     boolean isRename = (child.getParent() != null);
+    // 根据对INodesInPath的分析，第pos - 1级节点即当前节点的父目录
     final INodeDirectory parent = inodes[pos-1].asDirectory();
     boolean added;
     try {
+      // 将INode添加到父节点的孩子节点列表中, 返回是否添加成功的标志（存在同名节点返回false，否则返回true）
       added = parent.addChild(child, true, iip.getLatestSnapshotId());
     } catch (QuotaExceededException e) {
+      // 发生异常，则之前的更新是多余的，回退quota
       updateCountNoQuotaCheck(iip, pos,
           -counts.get(Quota.NAMESPACE), -counts.get(Quota.DISKSPACE));
       throw e;
     }
     if (!added) {
+      // 如果节点已存在，则之前的更新是多余的，回退quota
       updateCountNoQuotaCheck(iip, pos,
           -counts.get(Quota.NAMESPACE), -counts.get(Quota.DISKSPACE));
-    } else {
+    } else { // 否则，表示已经成功添加的节点
       iip.setINode(pos - 1, child.getParent());
       if (!isRename) {
         AclStorage.copyINodeDefaultAcl(child);
       }
+      // 将child节点添加至FSDirectory#inodeMap
       addToInodeMap(child);
     }
     return added;
@@ -3267,9 +3287,9 @@ public class FSDirectory implements Closeable {
   /** @return the {@link INodesInPath} containing all inodes in the path. */
   INodesInPath getINodesInPath(String path, boolean resolveLink
   ) throws UnresolvedLinkException {
-    final byte[][] components = INode.getPathComponents(path);
+    final byte[][] components = INode.getPathComponents(path); // 将path按'/'分割为字符串，每个字符串又转为btye数组， 比如'/NOTICE.txt', 会转为长度为2的byte数组，byte[0][]对于空字符，byte[1][]对应NOTICE.txt转变后的字节数组
     return INodesInPath.resolve(rootDir, components, components.length,
-            resolveLink);
+            resolveLink); // resolve方法会components解析为一个INodesInPath对象，INodesInPath可以看作是包含了components全路径上对应的每个INode节点，第一个节点是INode ""，即根节点
   }
 
   /** @return the last inode in the path. */

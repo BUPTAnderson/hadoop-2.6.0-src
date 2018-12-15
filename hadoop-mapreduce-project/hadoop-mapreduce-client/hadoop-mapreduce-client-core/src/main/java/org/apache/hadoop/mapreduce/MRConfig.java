@@ -32,7 +32,7 @@ public interface MRConfig {
 
   // Cluster-level configuration parameters
   public static final String TEMP_DIR = "mapreduce.cluster.temp.dir";
-  public static final String LOCAL_DIR = "mapreduce.cluster.local.dir";
+  public static final String LOCAL_DIR = "ç";
   public static final String MAPMEMORY_MB = "mapreduce.cluster.mapmemory.mb";
   public static final String REDUCEMEMORY_MB = 
     "mapreduce.cluster.reducememory.mb";

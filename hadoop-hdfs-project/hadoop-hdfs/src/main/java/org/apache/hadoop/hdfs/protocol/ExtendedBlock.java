@@ -26,7 +26,7 @@ import org.apache.hadoop.classification.InterfaceStability;
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public class ExtendedBlock {
-  private String poolId;
+  private String poolId; // block所在的块池id， 比如: BP-38265890-172.16.199.10-1527073441544
   private Block block;
 
   public ExtendedBlock() {

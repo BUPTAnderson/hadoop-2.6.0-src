@@ -62,18 +62,20 @@ class QuorumCall<KEY, RESULT> {
   static <KEY, RESULT> QuorumCall<KEY, RESULT> create(
       Map<KEY, ? extends ListenableFuture<RESULT>> calls) {
     final QuorumCall<KEY, RESULT> qr = new QuorumCall<KEY, RESULT>();
+    // 遍历所有的ListenableFuture对象
     for (final Entry<KEY, ? extends ListenableFuture<RESULT>> e : calls.entrySet()) {
       Preconditions.checkArgument(e.getValue() != null,
           "null future for key: " + e.getKey());
+      // 在ListenableFuture对象上添加回调函数
       Futures.addCallback(e.getValue(), new FutureCallback<RESULT>() {
         @Override
         public void onFailure(Throwable t) {
-          qr.addException(e.getKey(), t);
+          qr.addException(e.getKey(), t); // 如果异常，则异常计数加1
         }
 
         @Override
         public void onSuccess(RESULT res) {
-          qr.addResult(e.getKey(), res);
+          qr.addResult(e.getKey(), res); // 如果成功返回，则成功计数加1
         }
       });
     }
@@ -111,11 +113,15 @@ class QuorumCall<KEY, RESULT> {
     long et = st + millis;
     while (true) {
       checkAssertionErrors();
+      // 有足够的响应，则返回
       if (minResponses > 0 && countResponses() >= minResponses) return;
+      // 有足够的成功响应，则返回
       if (minSuccesses > 0 && countSuccesses() >= minSuccesses) return;
+      // 有足够的异常响应，则返回
       if (maxExceptions >= 0 && countExceptions() > maxExceptions) return;
       long now = Time.monotonicNow();
-      
+
+      // 计数等待时间
       if (now > nextLogTime) {
         long waited = now - st;
         String msg = String.format(
@@ -143,7 +149,7 @@ class QuorumCall<KEY, RESULT> {
       }
       rem = Math.min(rem, nextLogTime - now);
       rem = Math.max(rem, 1);
-      wait(rem);
+      wait(rem); // 等待响应
     }
   }
 

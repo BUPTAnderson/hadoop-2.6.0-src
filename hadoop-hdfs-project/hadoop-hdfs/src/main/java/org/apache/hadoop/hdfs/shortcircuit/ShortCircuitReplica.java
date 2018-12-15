@@ -284,6 +284,7 @@ public class ShortCircuitReplica {
   MappedByteBuffer loadMmapInternal() {
     try {
       FileChannel channel = dataStream.getChannel();
+      // 调用java.nio.channel.map()方法创建文件的内存映射
       MappedByteBuffer mmap = channel.map(MapMode.READ_ONLY, 0, 
           Math.min(Integer.MAX_VALUE, channel.size()));
       if (LOG.isTraceEnabled()) {

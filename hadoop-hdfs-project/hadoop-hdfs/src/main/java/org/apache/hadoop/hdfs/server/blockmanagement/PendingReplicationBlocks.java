@@ -45,18 +45,18 @@ import org.apache.hadoop.util.Daemon;
  ***************************************************/
 class PendingReplicationBlocks {
   private static final Log LOG = BlockManager.LOG;
-
+  // 所有复制请求，<数据块， 数据块复制信息(PendingBlockInfo), PendingBlockInfo保存了最近一次复制操作的时间戳，以及正在对当前数据块进行复制操作的数据节点>
   private final Map<Block, PendingBlockInfo> pendingReplications;
-  private final ArrayList<Block> timedOutItems;
-  Daemon timerThread = null;
+  private final ArrayList<Block> timedOutItems; // 过期的复制请求， 该队列中的数据会被BlockManager通过调用PendingReplicationBlocks.getTimedOutBlocks()方法重新插入到neededReplications对象中，以重新执行复制操作。
+  Daemon timerThread = null; // 复制超时检查线程
   private volatile boolean fsRunning = true;
 
   //
   // It might take anywhere between 5 to 10 minutes before
   // a request is timed out.
   //
-  private long timeout = 5 * 60 * 1000;
-  private final static long DEFAULT_RECHECK_INTERVAL = 5 * 60 * 1000;
+  private long timeout = 5 * 60 * 1000; // 复制请求超时时间
+  private final static long DEFAULT_RECHECK_INTERVAL = 5 * 60 * 1000; // 扫描周期
 
   PendingReplicationBlocks(long timeoutPeriod) {
     if ( timeoutPeriod > 0 ) {
@@ -67,6 +67,7 @@ class PendingReplicationBlocks {
   }
 
   void start() {
+    // 启动一个线程定期检查pendingReplications字段中保存的复制请求，标识那些超时的请求并将将其放入超时队列
     timerThread = new Daemon(new PendingReplicationMonitor());
     timerThread.start();
   }
@@ -97,12 +98,15 @@ class PendingReplicationBlocks {
    */
   void decrement(Block block, DatanodeDescriptor dn) {
     synchronized (pendingReplications) {
+      // 获取改block对应的PendingBlockInfo对象
       PendingBlockInfo found = pendingReplications.get(block);
       if (found != null) {
         if(LOG.isDebugEnabled()) {
           LOG.debug("Removing pending replication for " + block);
         }
+        // 从PendingBlockInfo中删除以及发送块复制成功的datanode的复制请求
         found.decrementReplicas(dn);
+        // 如果该数据块副本对应的PendingBlockInfo中不再有任何复制请求，则将这个数据块从pendingReplications字段中删除
         if (found.getNumReplicas() <= 0) {
           pendingReplications.remove(block);
         }
@@ -243,7 +247,7 @@ class PendingReplicationBlocks {
         while (iter.hasNext()) {
           Map.Entry<Block, PendingBlockInfo> entry = iter.next();
           PendingBlockInfo pendingBlock = entry.getValue();
-          // 如果数据块超时，则将其添加到复制超时数据块缓冲区timedOutItems
+          // 复制请求发起时间和当前时间的间隔大于timeout，则认为超时，如果数据块超时，则将其添加到复制超时数据块缓冲区timedOutItems
           if (now > pendingBlock.getTimeStamp() + timeout) {
             Block block = entry.getKey();
             synchronized (timedOutItems) {

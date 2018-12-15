@@ -76,15 +76,15 @@ public class LeaseManager {
   //
   // Used for handling lock-leases
   // Mapping: leaseHolder -> Lease
-  //
+  // 保存了租约持有者与租约的对应关系
   private final SortedMap<String, Lease> leases = new TreeMap<String, Lease>();
-  // Set of: Lease
+  // Set of: Lease 以租约更新时间为顺序保存LeaseManager中的所有租约，如果更新时间相同，则按照租约持有者的字典序保存
   private final SortedSet<Lease> sortedLeases = new TreeSet<Lease>();
 
   // 
   // Map path names to leases. It is protected by the sortedLeases lock.
   // The map stores pathnames in lexicographical order.
-  //
+  // 保存了文件路径与租约的对应关系，以路径的字典序为顺序保存
   private final SortedMap<String, Lease> sortedLeasesByPath = new TreeMap<String, Lease>();
 
   private Daemon lmthread;
@@ -114,11 +114,14 @@ public class LeaseManager {
   }
   
   /**
+   * holder和src这两个参数分别对应于ClientProtocol,create()或者append()方法中的clientName和src参数
    * Adds (or re-adds) the lease for the specified file.
+   * @param holder 保存租约持有者信息，即clientName
+   * @param src 保存创建或者追加写文件的路径
    */
   synchronized Lease addLease(String holder, String src) {
     Lease lease = getLease(holder);
-    if (lease == null) {
+    if (lease == null) { // 如果当前client没有租约，则创建一个
       lease = new Lease(holder);
       leases.put(holder, lease);
       sortedLeases.add(lease);
@@ -187,9 +190,9 @@ public class LeaseManager {
   }
   synchronized void renewLease(Lease lease) {
     if (lease != null) {
-      sortedLeases.remove(lease);
-      lease.renew();
-      sortedLeases.add(lease);
+      sortedLeases.remove(lease); // 移除
+      lease.renew(); // 更新时间
+      sortedLeases.add(lease); // 重新加入
     }
   }
 
@@ -210,26 +213,35 @@ public class LeaseManager {
    * expire, all the corresponding locks can be released.
    *************************************************************/
   class Lease implements Comparable<Lease> {
-    private final String holder;
-    private long lastUpdate;
-    private final Collection<String> paths = new TreeSet<String>();
+    private final String holder; // 客户端，也就是租约持有者的信息
+    private long lastUpdate; // 保存了租约最后的更新时间
+    private final Collection<String> paths = new TreeSet<String>(); // 保存了该客户端打开的所有HDFS文件的路径
   
     /** Only LeaseManager object can create a lease */
     private Lease(String holder) {
       this.holder = holder;
       renew();
     }
-    /** Only LeaseManager object can renew a lease */
+    /**
+     * 更新客户端的lastUpdate最近更新时间
+     * Only LeaseManager object can renew a lease
+     */
     private void renew() {
       this.lastUpdate = now();
     }
 
-    /** @return true if the Hard Limit Timer has expired */
+    /**
+     * 用于判断当前租约是否超出了硬限制(hardLimit)，硬限制是用于考虑文件关闭异常时，强制回收租约的时间，默认是60分钟，不可以配置
+     * @return true if the Hard Limit Timer has expired
+     */
     public boolean expiredHardLimit() {
       return now() - lastUpdate > hardLimit;
     }
 
-    /** @return true if the Soft Limit Timer has expired */
+    /**
+     * 用于判断当前租约是否超出了软限制(softLimit),软限制是写文件规定的租约超时时间，默认是60秒，不可以配置
+     * @return true if the Soft Limit Timer has expired
+     */
     public boolean expiredSoftLimit() {
       return now() - lastUpdate > softLimit;
     }
@@ -379,7 +391,7 @@ public class LeaseManager {
           fsnamesystem.writeLockInterruptibly();
           try {
             if (!fsnamesystem.isInSafeMode()) {
-              needSync = checkLeases();
+              needSync = checkLeases(); // 调用checkLeases方法进行租约检查
             }
           } finally {
             fsnamesystem.writeUnlock();
@@ -389,7 +401,7 @@ public class LeaseManager {
             }
           }
   
-          Thread.sleep(HdfsServerConstants.NAMENODE_LEASE_RECHECK_INTERVAL);
+          Thread.sleep(HdfsServerConstants.NAMENODE_LEASE_RECHECK_INTERVAL); // 默认是2秒，即每个2秒检查租约
         } catch(InterruptedException ie) {
           if (LOG.isDebugEnabled()) {
             LOG.debug(name + " is interrupted", ie);
@@ -424,23 +436,28 @@ public class LeaseManager {
   private synchronized boolean checkLeases() {
     boolean needSync = false;
     assert fsnamesystem.hasWriteLock();
+    // 遍历LeaseManager中的所有租约
     for(; sortedLeases.size() > 0; ) {
       final Lease oldest = sortedLeases.first();
+      // 如果当前租约没有超过硬限制时间，则直接返回，因为后面的租约并不需要判断
       if (!oldest.expiredHardLimit()) {
         return needSync;
       }
 
       LOG.info(oldest + " has expired hard limit");
 
+      // 租约超时情况处理
       final List<String> removing = new ArrayList<String>();
       // need to create a copy of the oldest lease paths, becuase 
       // internalReleaseLease() removes paths corresponding to empty files,
       // i.e. it needs to modify the collection being iterated over
       // causing ConcurrentModificationException
+      // 遍历超时租约中的所有文件，对每一个文件进行租约恢复
       String[] leasePaths = new String[oldest.getPaths().size()];
       oldest.getPaths().toArray(leasePaths);
       for(String p : leasePaths) {
         try {
+          // 调用internalReleaseLease方法对文件进行租约恢复
           boolean completed = fsnamesystem.internalReleaseLease(oldest, p,
               HdfsServerConstants.NAMENODE_LEASE_HOLDER);
           if (LOG.isDebugEnabled()) {
@@ -451,16 +468,19 @@ public class LeaseManager {
             }
           }
           // If a lease recovery happened, we need to sync later.
+          // 由于进行了租约恢复操作，需要在editlog中同步
           if (!needSync && !completed) {
             needSync = true;
           }
         } catch (IOException e) {
           LOG.error("Cannot release the path " + p + " in the lease "
               + oldest, e);
+          // 租约恢复出现异常，加入removing队列中
           removing.add(p);
         }
       }
 
+      // 租约恢复出现异常，则直接删除
       for(String p : removing) {
         removeLease(oldest, p);
       }

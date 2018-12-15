@@ -32,9 +32,9 @@ import org.apache.hadoop.classification.InterfaceStability;
 
 @InterfaceAudience.LimitedPrivate({"HDFS", "MapReduce"})
 @InterfaceStability.Unstable
-public interface Node {
+public interface Node { // Node接口定义了一个网络拓扑的一个结点。结点可能是一个代表数据结点的叶子结点，或者代表数据中心或者机架的中间结点。
   /** @return the string representation of this node's network location */
-  public String getNetworkLocation();
+  public String getNetworkLocation(); // 返回网络位置，即机架信息，比如/default-rack
 
   /** Set this node's network location
    * @param location the location

@@ -43,7 +43,7 @@ public interface BlockReader extends ByteBufferReadable {
   int read(byte[] buf, int off, int len) throws IOException;
 
   /**
-   * Skip the given number of bytes
+   * Skip the given number of bytes 从数据块中跳过若干字节
    */
   long skip(long n) throws IOException;
 
@@ -53,7 +53,7 @@ public interface BlockReader extends ByteBufferReadable {
    * network I/O.
    * This may return more than what is actually present in the block.
    */
-  int available() throws IOException;
+  int available() throws IOException; // 当不用进行一次新的网络IO时，当前输入流可以读取的字节数
 
   /**
    * Close the block reader.
@@ -81,13 +81,13 @@ public interface BlockReader extends ByteBufferReadable {
   /**
    * @return              true only if this is a local read.
    */
-  boolean isLocal();
+  boolean isLocal(); // 是否是一个本地读取，也就是说客户端和数据块是否在同一个机器上
   
   /**
    * @return              true only if this is a short-circuit read.
    *                      All short-circuit reads are also local.
    */
-  boolean isShortCircuit();
+  boolean isShortCircuit(); // 是否是一个短路读取，注意短路读取必须是本地读取
 
   /**
    * Get a ClientMmap object for this BlockReader.
@@ -96,5 +96,5 @@ public interface BlockReader extends ByteBufferReadable {
    * @return              The ClientMmap object, or null if mmap is not
    *                      supported.
    */
-  ClientMmap getClientMmap(EnumSet<ReadOption> opts);
+  ClientMmap getClientMmap(EnumSet<ReadOption> opts); // 为当前读取获得一个内存映射区域
 }

@@ -68,7 +68,7 @@ public class DirectBufferPool {
         return b;
       }
     }
-
+    // allocateDirect分配的是堆外内存
     return ByteBuffer.allocateDirect(size);
   }
   

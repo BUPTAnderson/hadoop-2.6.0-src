@@ -96,7 +96,7 @@ abstract public class ReplicaInfo extends Block implements Replica {
   }
   
   /**
-   * Get the full path of this replica's data file
+   * Get the full path of this replica's data file 获取副本的数据块文件
    * @return the full path of this replica's data file
    */
   public File getBlockFile() {
@@ -104,7 +104,7 @@ abstract public class ReplicaInfo extends Block implements Replica {
   }
   
   /**
-   * Get the full path of this replica's meta file
+   * Get the full path of this replica's meta file 获取副本的校验文件
    * @return the full path of this replica's meta file
    */
   public File getMetaFile() {
@@ -113,7 +113,7 @@ abstract public class ReplicaInfo extends Block implements Replica {
   }
   
   /**
-   * Get the volume where this replica is located on disk
+   * Get the volume where this replica is located on disk 获取副本所长存储目录的FsVolumeImpl
    * @return the volume where this replica is located on disk
    */
   public FsVolumeSpi getVolume() {
@@ -128,7 +128,7 @@ abstract public class ReplicaInfo extends Block implements Replica {
   }
 
   /**
-   * Get the storageUuid of the volume that stores this replica.
+   * Get the storageUuid of the volume that stores this replica. 获取副本所长存储目录的storageUuid信息，不同目录的uuid不同
    */
   @Override
   public String getStorageUuid() {
@@ -227,12 +227,14 @@ abstract public class ReplicaInfo extends Block implements Replica {
    * be recovered (especially on Windows) on datanode restart.
    */
   private void unlinkFile(File file, Block b) throws IOException {
+    // 构造临时文件，临时文件在同一个目录下，在数据块文件名后加后缀".unlinked"
     File tmpFile = DatanodeUtil.createTmpFile(b, DatanodeUtil.getUnlinkTmpFile(file));
     try {
       FileInputStream in = new FileInputStream(file);
       try {
         FileOutputStream out = new FileOutputStream(tmpFile);
         try {
+          // 将源文件拷贝至临时文件
           IOUtils.copyBytes(in, out, 16*1024);
         } finally {
           out.close();
@@ -245,6 +247,7 @@ abstract public class ReplicaInfo extends Block implements Replica {
                               " into file " + tmpFile +
                               " resulted in a size of " + tmpFile.length());
       }
+      // 用临时文件替换原文件
       FileUtil.replaceFile(tmpFile, file);
     } catch (IOException e) {
       boolean done = tmpFile.delete();
@@ -265,6 +268,7 @@ abstract public class ReplicaInfo extends Block implements Replica {
    * @throws IOException if there is any copy error
    */
   public boolean unlinkBlock(int numLinks) throws IOException {
+    // 如果以及移除了硬链接，则直接返回
     if (isUnlinked()) {
       return false;
     }
@@ -273,11 +277,12 @@ abstract public class ReplicaInfo extends Block implements Replica {
       throw new IOException("detachBlock:Block not found. " + this);
     }
     File meta = getMetaFile();
-
+    // 移除数据块文件硬链接
     if (HardLink.getLinkCount(file) > numLinks) {
       DataNode.LOG.info("CopyOnWrite for block " + this);
       unlinkFile(file, this);
     }
+    // 移除校验文件硬链接
     if (HardLink.getLinkCount(meta) > numLinks) {
       unlinkFile(meta, this);
     }

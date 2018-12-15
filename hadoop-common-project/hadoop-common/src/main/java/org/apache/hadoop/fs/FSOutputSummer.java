@@ -50,8 +50,8 @@ abstract public class FSOutputSummer extends OutputStream {
   
   protected FSOutputSummer(DataChecksum sum) {
     this.sum = sum;
-    this.buf = new byte[sum.getBytesPerChecksum() * BUFFER_NUM_CHUNKS];
-    this.checksum = new byte[getChecksumSize() * BUFFER_NUM_CHUNKS];
+    this.buf = new byte[sum.getBytesPerChecksum() * BUFFER_NUM_CHUNKS]; // 默认512*9 = 4608
+    this.checksum = new byte[getChecksumSize() * BUFFER_NUM_CHUNKS]; // 默认4*9 = 36
     this.count = 0;
   }
   
@@ -107,6 +107,7 @@ abstract public class FSOutputSummer extends OutputStream {
       throw new ArrayIndexOutOfBoundsException();
     }
 
+    // 时间数据写入的工作又write1来执行
     for (int n=0;n<len;n+=write1(b, off+n, len-n)) {
     }
   }
@@ -116,16 +117,19 @@ abstract public class FSOutputSummer extends OutputStream {
    * stream at most once if necessary.
    */
   private int write1(byte b[], int off, int len) throws IOException {
+    // 写入长度大于本地buf的长度时，则数据不写入buf，直接调用writeChecksumChunks将length长度大小的数据生成chunksum，并写入packet中。
     if(count==0 && len>=buf.length) {
       // local buffer is empty and user buffer size >= local buffer size, so
       // simply checksum the user buffer and send it directly to the underlying
       // stream
       final int length = buf.length;
+      // 这里是执行数据的主体逻辑，负责构建与传输源始数据与校验和数据。
       writeChecksumChunks(b, off, length);
       return length;
     }
     
     // copy user data to local buffer
+    // 当len小于本地buf的长度时，先写入buf，当buf写满之后，flushBuffer
     int bytesToCopy = buf.length-count;
     bytesToCopy = (len<bytesToCopy) ? len : bytesToCopy;
     System.arraycopy(b, off, buf, count, bytesToCopy);
@@ -160,6 +164,7 @@ abstract public class FSOutputSummer extends OutputStream {
     int partialLen = bufLen % sum.getBytesPerChecksum();
     int lenToFlush = flushPartial ? bufLen : bufLen - partialLen;
     if (lenToFlush != 0) {
+      // 调用writeChecksumChunks
       writeChecksumChunks(buf, 0, lenToFlush);
       if (!flushPartial || keep) {
         count = partialLen;
@@ -199,10 +204,13 @@ abstract public class FSOutputSummer extends OutputStream {
    */
   private void writeChecksumChunks(byte b[], int off, int len)
   throws IOException {
+    // 计算checksum
     sum.calculateChunkedSums(b, off, len, checksum, 0);
     for (int i = 0; i < len; i += sum.getBytesPerChecksum()) {
       int chunkLen = Math.min(sum.getBytesPerChecksum(), len - i);
       int ckOffset = i / sum.getBytesPerChecksum() * getChecksumSize();
+      // 进一步调用DFSOutputStream的writeChunk方法：将b中从下标off+i开始，长度为chunkLen的数据写入，
+      // 同时写入checksum，checksum为方法充传入的参数checksum数组从下标ckOffset开始长度为getChecksumSize的数据
       writeChunk(b, off + i, chunkLen, checksum, ckOffset, getChecksumSize());
     }
   }

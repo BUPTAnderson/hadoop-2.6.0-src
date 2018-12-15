@@ -45,21 +45,29 @@ public abstract class INodeWithAdditionalFields extends INode
       BITS = new LongBitFormat(name(), previous, length, 0);
     }
 
+    // 提取最后23个比特的user信息，并通过SerialNumberManager获取用户名
     static String getUser(long permission) {
+      // 首先获取permission中最后23个比特的用户标识
       final int n = (int)USER.BITS.retrieve(permission);
+      // 通过SerialNumberManager类获取用户标识对应的用户名
       return SerialNumberManager.INSTANCE.getUser(n);
     }
 
+    // 提取中间25个比特的group信息，并通过SerialNumberManager获取用户组名
     static String getGroup(long permission) {
+      // 首先获取permission中中间25个比特的用户标识
       final int n = (int)GROUP.BITS.retrieve(permission);
+      // 通过SerialNumberManager类获取用户组标识对应的用户组名
       return SerialNumberManager.INSTANCE.getGroup(n);
     }
-    
+
+    // 提取前16个比特的mode信息
     static short getMode(long permission) {
       return (short)MODE.BITS.retrieve(permission);
     }
 
     /** Encode the {@link PermissionStatus} to a long. */
+    // 将一个PermissionStatus类，转换成long类型的permission信息
     static long toLong(PermissionStatus ps) {
       long permission = 0L;
       final int user = SerialNumberManager.INSTANCE.getUserSerialNumber(
@@ -273,6 +281,10 @@ public abstract class INodeWithAdditionalFields extends INode
     this.accessTime = accessTime;
   }
 
+  /**
+   * 向当前INode节点添加一个新的特性
+   * @param f
+   */
   protected void addFeature(Feature f) {
     int size = features.length;
     Feature[] arr = new Feature[size + 1];

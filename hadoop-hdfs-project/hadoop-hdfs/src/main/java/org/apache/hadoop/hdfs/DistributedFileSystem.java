@@ -137,17 +137,17 @@ public class DistributedFileSystem extends FileSystem {
     super.initialize(uri, conf);
     setConf(conf);
 
-    String host = uri.getHost();
+    String host = uri.getHost(); // 获取host，比如hdfs://localhost:9000,对应的host是localhost
     if (host == null) {
       throw new IOException("Incomplete HDFS URI, no host: "+ uri);
     }
     homeDirPrefix = conf.get(
         DFSConfigKeys.DFS_USER_HOME_DIR_PREFIX_KEY,
-        DFSConfigKeys.DFS_USER_HOME_DIR_PREFIX_DEFAULT);
+        DFSConfigKeys.DFS_USER_HOME_DIR_PREFIX_DEFAULT); // 返回/user
     
-    this.dfs = new DFSClient(uri, conf, statistics);
+    this.dfs = new DFSClient(uri, conf, statistics); // 初始化DFSClient
     this.uri = URI.create(uri.getScheme()+"://"+uri.getAuthority());
-    this.workingDir = getHomeDirectory();
+    this.workingDir = getHomeDirectory(); // 默认值：homeDirPrefix + "/" + ShortUserName， 比如: hdfs://localhost:9000/user/anderson
   }
 
   @Override
@@ -295,12 +295,15 @@ public class DistributedFileSystem extends FileSystem {
       throws IOException {
     statistics.incrementReadOps(1);
     Path absF = fixRelativePart(f);
+    // 实际执行匿名内部类的doCall方法返回FSDataInputStream对象
     return new FileSystemLinkResolver<FSDataInputStream>() {
       @Override
       public FSDataInputStream doCall(final Path p)
           throws IOException, UnresolvedLinkException {
+        // 调用DFSClient的open方法，该方法中会调用new DFSInputStream(this, src, buffersize, verifyChecksum) 创建HDFS文件对应的DFSInputStream对象返回，
         final DFSInputStream dfsis =
-          dfs.open(getPathName(p), bufferSize, verifyChecksum);
+          dfs.open(getPathName(p), bufferSize, verifyChecksum); // verifyChecksum为true
+        // 构造一个HdfsDataInputStream对象包装DFSClient返回的DFSInputStream，最后将这个HdfsDataInputStream对象返回， 之后调用该对象的read方法进行读取操作
         return dfs.createWrappedInputStream(dfsis);
       }
       @Override
@@ -334,6 +337,7 @@ public class DistributedFileSystem extends FileSystem {
   public FSDataOutputStream create(Path f, FsPermission permission,
       boolean overwrite, int bufferSize, short replication, long blockSize,
       Progressable progress) throws IOException {
+    // 继续调用重载的方法
     return this.create(f, permission,
         overwrite ? EnumSet.of(CreateFlag.CREATE, CreateFlag.OVERWRITE)
             : EnumSet.of(CreateFlag.CREATE), bufferSize, replication,
@@ -394,9 +398,11 @@ public class DistributedFileSystem extends FileSystem {
       @Override
       public FSDataOutputStream doCall(final Path p)
           throws IOException, UnresolvedLinkException {
+        // 调用DFSClient的create方法,创建一个DFSOutputStream对象
         final DFSOutputStream dfsos = dfs.create(getPathName(p), permission,
                 cflags, replication, blockSize, progress, bufferSize,
                 checksumOpt);
+        // 创建一个HdfsDataOutputStream对象，封装了DFSOutputStream对象
         return dfs.createWrappedOutputStream(dfsos, statistics);
       }
       @Override

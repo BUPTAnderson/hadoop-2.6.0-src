@@ -38,23 +38,26 @@ import com.google.common.collect.Lists;
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public class LocatedBlock {
-
+  // file 的某个block
   private final ExtendedBlock b;
+  // block中第一个字节在file中的偏移量
   private long offset;  // offset of the first byte of the block in the file
+  // block的副本所在dn数组
   private final DatanodeInfo[] locs;
   /** Storage ID for each replica */
-  private final String[] storageIDs;
+  private final String[] storageIDs; // 每个副本所在的磁盘id
   // Storage type for each replica, if reported.
+  // 每个副本所在磁盘的类型
   private final StorageType[] storageTypes;
   // corrupt flag is true if all of the replicas of a block are corrupt.
   // else false. If block has few corrupt replicas, they are filtered and 
   // their locations are not part of this object
-  private boolean corrupt;
+  private boolean corrupt; // block是否损坏
   private Token<BlockTokenIdentifier> blockToken = new Token<BlockTokenIdentifier>();
   /**
    * List of cached datanode locations
    */
-  private DatanodeInfo[] cachedLocs;
+  private DatanodeInfo[] cachedLocs; // 缓存该数据块的dn
 
   // Used when there are no locations
   private static final DatanodeInfo[] EMPTY_LOCS = new DatanodeInfo[0];

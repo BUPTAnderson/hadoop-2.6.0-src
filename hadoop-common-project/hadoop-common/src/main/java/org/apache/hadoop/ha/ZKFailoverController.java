@@ -375,7 +375,7 @@ public abstract class ZKFailoverController {
   }
   
   private synchronized void becomeActive() throws ServiceFailedException {
-    LOG.info("Trying to make " + localTarget + " active...");
+    LOG.info("Trying to make " + localTarget + " active..."); // localTarget是NNHAServiceTarget对象
     try {
       HAServiceProtocolHelper.transitionToActive(localTarget.getProxy(
           conf, FailoverController.getRpcTimeoutToNewActive(conf)),

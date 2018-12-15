@@ -521,7 +521,7 @@ abstract public class Shell {
       errThread.start();
     } catch (IllegalStateException ise) { }
     try {
-      parseExecResult(inReader); // parse the output
+      parseExecResult(inReader); // parse the output ，调用SHell子类对应的parseExecResult方法
       // clear the input stream buffer
       String line = inReader.readLine();
       while(line != null) { 

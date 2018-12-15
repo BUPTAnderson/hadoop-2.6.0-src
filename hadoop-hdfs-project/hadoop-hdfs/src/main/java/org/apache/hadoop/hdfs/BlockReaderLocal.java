@@ -205,7 +205,7 @@ class BlockReaderLocal implements BlockReader {
    *
    * This may be null if we don't need it.
    */
-  private ByteBuffer dataBuf;
+  private ByteBuffer dataBuf; // 数据缓冲区
 
   /**
    * Buffers checksums starting at the current checksumPos and extending on
@@ -213,7 +213,7 @@ class BlockReaderLocal implements BlockReader {
    *
    * This may be null if we don't need it.
    */
-  private ByteBuffer checksumBuf;
+  private ByteBuffer checksumBuf; // 校验和缓冲区
 
   /**
    * StorageType of replica on DataNode.
@@ -231,8 +231,8 @@ class BlockReaderLocal implements BlockReader {
         (this.checksum.getChecksumType().id != DataChecksum.CHECKSUM_NULL);
     this.filename = builder.filename;
     this.block = builder.block;
-    this.bytesPerChecksum = checksum.getBytesPerChecksum();
-    this.checksumSize = checksum.getChecksumSize();
+    this.bytesPerChecksum = checksum.getBytesPerChecksum(); // 默认512，每个chunk512字节
+    this.checksumSize = checksum.getChecksumSize(); // 默认4byte，每个chunk有4字节的校验数据
 
     this.maxAllocatedChunks = (bytesPerChecksum == 0) ? 0 :
         ((builder.bufferSize + bytesPerChecksum - 1) / bytesPerChecksum);
@@ -240,14 +240,14 @@ class BlockReaderLocal implements BlockReader {
     // We can't do more readahead than there is space in the buffer.
     int maxReadaheadChunks = (bytesPerChecksum == 0) ? 0 :
         ((Math.min(builder.bufferSize, builder.maxReadahead) +
-            bytesPerChecksum - 1) / bytesPerChecksum);
+            bytesPerChecksum - 1) / bytesPerChecksum); // builder.bufferSize = 1024*1024， maxReadaheadChunks=2048
     if (maxReadaheadChunks == 0) {
       this.zeroReadaheadRequested = true;
       maxReadaheadChunks = 1;
     } else {
-      this.zeroReadaheadRequested = false;
+      this.zeroReadaheadRequested = false; // zeroReadaheadRequested为false
     }
-    this.maxReadaheadLength = maxReadaheadChunks * bytesPerChecksum;
+    this.maxReadaheadLength = maxReadaheadChunks * bytesPerChecksum; // 2048 * 512
     this.storageType = builder.storageType;
   }
 
@@ -361,13 +361,14 @@ class BlockReaderLocal implements BlockReader {
   }
 
   private boolean createNoChecksumContext() {
-    if (verifyChecksum) {
-      if (storageType != null && storageType.isTransient()) {
+    if (verifyChecksum) { // 默认值为true
+      if (storageType != null && storageType.isTransient()) { // storageType为DISK isTransient()返回false
         // Checksums are not stored for replicas on transient storage.  We do not
         // anchor, because we do not intend for client activity to block eviction
         // from transient storage on the DataNode side.
         return true;
       } else {
+        // 尝试在datanode和client共享内存中副本的slot上添加一个免校验的锚(当且仅当datanode已经缓存了这个副本时，才可以添加一个锚)，默认返回false
         return replica.addNoChecksumAnchor();
       }
     } else {
@@ -385,6 +386,7 @@ class BlockReaderLocal implements BlockReader {
 
   @Override
   public synchronized int read(ByteBuffer buf) throws IOException {
+    // 能否跳过数据校验， 默认返回false，即不能跳过
     boolean canSkipChecksum = createNoChecksumContext();
     try {
       String traceString = null;
@@ -400,9 +402,11 @@ class BlockReaderLocal implements BlockReader {
       }
       int nRead;
       try {
+        // 可以跳过数据校验，以及不需要预读取时，调用readWithoutBounceBuffer()方法
         if (canSkipChecksum && zeroReadaheadRequested) {
           nRead = readWithoutBounceBuffer(buf);
         } else {
+          // 需要校验，以及开启了预读取时，调用readWithBounceBuffer(ByteBuffer buf, boolean canSkipChecksum)方法
           nRead = readWithBounceBuffer(buf, canSkipChecksum);
         }
       } catch (IOException e) {
@@ -422,9 +426,10 @@ class BlockReaderLocal implements BlockReader {
 
   private synchronized int readWithoutBounceBuffer(ByteBuffer buf)
       throws IOException {
-    freeDataBufIfExists();
-    freeChecksumBufIfExists();
+    freeDataBufIfExists(); // 释放dataBuffer
+    freeChecksumBufIfExists(); // 释放checksumBuffer
     int total = 0;
+    // 直接从输入流中将数据读取到buf
     while (buf.hasRemaining()) {
       int nRead = dataIn.read(buf, dataPos);
       if (nRead <= 0) break;
@@ -493,13 +498,17 @@ class BlockReaderLocal implements BlockReader {
   private synchronized int readWithBounceBuffer(ByteBuffer buf,
         boolean canSkipChecksum) throws IOException {
     int total = 0;
+    // 调用drainDataBuf()，将dataBuf缓冲区中的数据写入buf
     int bb = drainDataBuf(buf); // drain bounce buffer if possible
     if (bb >= 0) {
       total += bb;
+      // 如果已经向buf中写满数据了，则直接返回写入的数据量，结束本次读取
       if (buf.remaining() == 0) return total;
     }
+    // eof便是是否读取到结束了
     boolean eof = true, done = false;
     do {
+      // 如果buf的空间足够大，并且输入流游标在chunk边界上，则直接从IO流中将数据写入buf
       if (buf.isDirect() && (buf.remaining() >= maxReadaheadLength)
             && ((dataPos % bytesPerChecksum) == 0)) {
         // Fast lane: try to read directly into user-supplied buffer, bypassing
@@ -508,10 +517,12 @@ class BlockReaderLocal implements BlockReader {
         int nRead;
         try {
           buf.limit(buf.position() + maxReadaheadLength);
+          // 将数据从输入流读入buf中，canSkipChecksum为true的话将校验和读入checksumBuf中
           nRead = fillBuffer(buf, canSkipChecksum);
         } finally {
           buf.limit(oldLimit);
         }
+        // 计划读入maxReadaheadLength这些数据量，实际小于这些，说明数据都读取完了
         if (nRead < maxReadaheadLength) {
           done = true;
         }
@@ -521,9 +532,11 @@ class BlockReaderLocal implements BlockReader {
         total += nRead;
       } else {
         // Slow lane: refill bounce buffer.
+        // 否则调用fillDataBuf将数据读入dataBuf缓存，注意这里是读入dataBuf缓存，并没有将数据读入buf
         if (fillDataBuf(canSkipChecksum)) {
           done = true;
         }
+        // 然后将dataBuf中的数据导入buf
         bb = drainDataBuf(buf); // drain bounce buffer if possible
         if (bb >= 0) {
           eof = false;
@@ -690,6 +703,7 @@ class BlockReaderLocal implements BlockReader {
     }
     ClientMmap clientMmap = null;
     try {
+      // 调用
       clientMmap = replica.getOrCreateClientMmap(anchor);
     } finally {
       if ((clientMmap == null) && anchor) {

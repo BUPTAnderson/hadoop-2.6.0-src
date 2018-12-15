@@ -302,8 +302,12 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
     BlockReader reader = null;
 
     Preconditions.checkNotNull(configuration);
+    // 首先尝试创建一个本地短路读取，短路读取避免了Socket通信的开销
+    // shortCircuitLocalReads短路读取开关，默认是false。allowShortCircuitLocalReads参数有当前读取的文件是否有正在创建的block决定，如果有则为false
     if (conf.shortCircuitLocalReads && allowShortCircuitLocalReads) {
+      // 是否使用旧版本的短路读取，默认是false
       if (clientContext.getUseLegacyBlockReaderLocal()) {
+        // BlockReaderLocalLegacy，老版本的BlockReaderLocal，当客户端与datanode在同一台物理机器上时，客户端直接从本地磁盘读取数据。老版本的实现要求客户端获取datanode数据目录的权限，这可能引入安全问题
         reader = getLegacyBlockReaderLocal();
         if (reader != null) {
           if (LOG.isTraceEnabled()) {
@@ -312,6 +316,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
           return reader;
         }
       } else {
+        // BlockReaderLocal，进行本地短路读取的BlockReader，当客户端与datanode在同一台物理机器上时，客户端可以直接从本地磁盘读取数据，绕过datanode进程，从而提高了读取性能
         reader = getBlockReaderLocal();
         if (reader != null) {
           if (LOG.isTraceEnabled()) {
@@ -321,6 +326,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
         }
       }
     }
+    // RemoteBlockReader2：尝试创建域套接字读取器，这种方式使用Linux的domainSocket(把domainSocket封装为DomainPeer), domainSocketDataTraffic开关默认值是false
     if (conf.domainSocketDataTraffic) {
       reader = getRemoteBlockReaderFromDomain();
       if (reader != null) {
@@ -334,6 +340,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
     Preconditions.checkState(!DFSInputStream.tcpReadsDisabledForTesting,
         "TCP reads were disabled for testing, but we failed to " +
         "do a non-TCP read.");
+    // RemoteBlockReader2: 创建远程读取器，这种方式使用NioNetPeer，使用TCP进行数据的读取，返回远程BlockReader
     return getRemoteBlockReaderFromTcp();
   }
 
@@ -394,13 +401,16 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
       pathInfo = clientContext.getDomainSocketFactory().
                       getPathInfo(inetSocketAddress, conf);
     }
+    // 判断pathState是否可用
     if (!pathInfo.getPathState().getUsableForShortCircuit()) {
       PerformanceAdvisory.LOG.debug(this + ": " + pathInfo + " is not " +
           "usable for short circuit; giving up on BlockReaderLocal.");
       return null;
     }
+    // 从clientContext
     ShortCircuitCache cache = clientContext.getShortCircuitCache();
     ExtendedBlockId key = new ExtendedBlockId(block.getBlockId(), block.getBlockPoolId());
+    // 获取短路操作对应的ShortCircuitReplicaInfo
     ShortCircuitReplicaInfo info = cache.fetchOrCreate(key, this);
     InvalidToken exc = info.getInvalidTokenException();
     if (exc != null) {
@@ -422,7 +432,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
         setFilename(fileName).
         setBlock(block).
         setStartOffset(startOffset).
-        setShortCircuitReplica(info.getReplica()).
+        setShortCircuitReplica(info.getReplica()). // 设置短路读取的replica
         setVerifyChecksum(verifyChecksum).
         setCachingStrategy(cachingStrategy).
         setStorageType(storageType).
@@ -439,7 +449,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
    */
   @Override
   public ShortCircuitReplicaInfo createShortCircuitReplicaInfo() {
-    if (createShortCircuitReplicaInfoCallback != null) {
+    if (createShortCircuitReplicaInfoCallback != null) { // 默认为null
       ShortCircuitReplicaInfo info =
         createShortCircuitReplicaInfoCallback.createShortCircuitReplicaInfo();
       if (info != null) return info;
@@ -449,9 +459,9 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
     }
     BlockReaderPeer curPeer;
     while (true) {
-      curPeer = nextDomainPeer();
+      curPeer = nextDomainPeer(); // 创建curPeer
       if (curPeer == null) break;
-      if (curPeer.fromCache) remainingCacheTries--;
+      if (curPeer.fromCache) remainingCacheTries--; // fromCache默认为false
       DomainPeer peer = (DomainPeer)curPeer.peer;
       Slot slot = null;
       ShortCircuitCache cache = clientContext.getShortCircuitCache();
@@ -469,6 +479,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
           if (curPeer == null) break;
           peer = (DomainPeer)curPeer.peer;
         }
+        // 调用requestFileDescriptors方法
         ShortCircuitReplicaInfo info = requestFileDescriptors(peer, slot);
         clientContext.getPeerCache().put(datanode, peer);
         return info;
@@ -513,10 +524,12 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
    */
   private ShortCircuitReplicaInfo requestFileDescriptors(DomainPeer peer,
           Slot slot) throws IOException {
+    // 调用clientContext的方法
     ShortCircuitCache cache = clientContext.getShortCircuitCache();
     final DataOutputStream out =
         new DataOutputStream(new BufferedOutputStream(peer.getOutputStream()));
     SlotId slotId = slot == null ? null : slot.getSlotId();
+    // 调用DataTransferProtocol.requestShortCircuitFds方法与DN通信，获取数据块文件以及元数据文件的文件描述符
     new Sender(out).requestShortCircuitFds(block, token, slotId, 1);
     DataInputStream in = new DataInputStream(peer.getInputStream());
     BlockOpResponseProto resp = BlockOpResponseProto.parseFrom(
@@ -531,6 +544,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
       try {
         ExtendedBlockId key =
             new ExtendedBlockId(block.getBlockId(), block.getBlockPoolId());
+        // ShortCircuitReplica对象包含我们通过短路本地读取读取的块的文件描述符。 文件描述符可以在多个线程之间共享，因为我们执行的所有操作都是无状态的 - 即，我们使用pread而不是read，以避免使用共享位置状态。
         replica = new ShortCircuitReplica(key, fis[0], fis[1], cache,
             Time.monotonicNow(), slot);
       } catch (IOException e) {
@@ -607,7 +621,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
       DomainPeer peer = (DomainPeer)curPeer.peer;
       BlockReader blockReader = null;
       try {
-        blockReader = getRemoteBlockReader(peer);
+        blockReader = getRemoteBlockReader(peer); // peer为DomainPeer
         return blockReader;
       } catch (IOException ioe) {
         IOUtils.cleanup(LOG, peer);
@@ -670,7 +684,8 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
         curPeer = nextTcpPeer();
         if (curPeer == null) break;
         if (curPeer.fromCache) remainingCacheTries--;
-        peer = curPeer.peer;
+        peer = curPeer.peer; // NioInetPeer
+        // 通过peer得到某个block的blockReader
         blockReader = getRemoteBlockReader(peer);
         return blockReader;
       } catch (IOException ioe) {
@@ -720,7 +735,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
   private BlockReaderPeer nextDomainPeer() {
     if (remainingCacheTries > 0) {
       Peer peer = clientContext.getPeerCache().get(datanode, true);
-      if (peer != null) {
+      if (peer != null) { // 初次调用peer为null
         if (LOG.isTraceEnabled()) {
           LOG.trace("nextDomainPeer: reusing existing peer " + peer);
         }
@@ -728,7 +743,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
       }
     }
     DomainSocket sock = clientContext.getDomainSocketFactory().
-        createSocket(pathInfo, conf.socketTimeout);
+        createSocket(pathInfo, conf.socketTimeout); // 调用createSocket方法创建sock
     if (sock == null) return null;
     return new BlockReaderPeer(new DomainPeer(sock), false);
   }
@@ -787,6 +802,7 @@ public class BlockReaderFactory implements ShortCircuitReplicaCreator {
 
   @SuppressWarnings("deprecation")
   private BlockReader getRemoteBlockReader(Peer peer) throws IOException {
+    // useLegacyBlockReader默认值是false，执行else中的逻辑
     if (conf.useLegacyBlockReader) {
       return RemoteBlockReader.newBlockReader(fileName,
           block, token, startOffset, length, conf.ioBufferSize,

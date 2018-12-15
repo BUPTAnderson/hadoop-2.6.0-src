@@ -35,13 +35,18 @@ import org.apache.hadoop.util.LightWeightGSet;
 @InterfaceAudience.Private
 public class BlockInfo extends Block implements LightWeightGSet.LinkedElement {
   public static final BlockInfo[] EMPTY_ARRAY = {}; 
-
+  // 保存该数据块归属于哪一个HDFS文件，bc字段是BlockCollection类型的，记录了该HDFS文件的INode对象的引用(INode是BlockCollection的子类)
   private BlockCollection bc;
 
   /** For implementing {@link LightWeightGSet.LinkedElement} interface */
   private LightWeightGSet.LinkedElement nextLinkedElement;
 
   /**
+   * 我们通过代码看到，triplets数组的长度就是3*replication（3乘以block的副本数），
+   * triplets[i]：存储DatanodeStorageInfo对象，Block所在的DataNode;
+   * triplets[i+1]：存储BlockInfo对象，该DataNode上该block前一个Block；
+   * triplets[i+2]：存储BlockInfo对象，该DataNode上该block后一个Block；
+   *
    * This array contains triplets of references. For each i-th storage, the
    * block belongs to triplets[3*i] is the reference to the
    * {@link DatanodeStorageInfo} and triplets[3*i+1] and triplets[3*i+2] are
@@ -53,7 +58,7 @@ public class BlockInfo extends Block implements LightWeightGSet.LinkedElement {
    * per replica is 42 bytes (LinkedList#Entry object per replica) versus 16
    * bytes using the triplets.
    */
-  private Object[] triplets;
+  private Object[] triplets; // 保存这个Block的副本存储在哪些数据节点上
 
   /**
    * Construct an entry for blocksmap
@@ -194,12 +199,13 @@ public class BlockInfo extends Block implements LightWeightGSet.LinkedElement {
   }
 
   /**
+   * 在triplets数据中找到插入当前DatanodeStorageInfo的位置，并插入
    * Add a {@link DatanodeStorageInfo} location for a block
    */
   boolean addStorage(DatanodeStorageInfo storage) {
     // find the last null node
-    int lastNode = ensureCapacity(1);
-    setStorageInfo(lastNode, storage);
+    int lastNode = ensureCapacity(1); // 在triplets[]数组中找到当前存储的插入位置
+    setStorageInfo(lastNode, storage); // 插入DatanodeStorageInfo对象
     setNext(lastNode, null);
     setPrevious(lastNode, null);
     return true;
@@ -277,6 +283,8 @@ public class BlockInfo extends Block implements LightWeightGSet.LinkedElement {
   }
 
   /**
+   * 将当前数据块对应的BlockInfo对象添加到Datanode存储管理的数据块链表中，插入的方法是直接插入在链表的头节点blockList之前，
+   * 并用新添加数据块的BlockInfo对象替代原有的blockList作为数据块链表的头节点
    * Insert this block into the head of the list of blocks 
    * related to the specified DatanodeStorageInfo.
    * If the head is null then form a new list.
@@ -287,11 +295,11 @@ public class BlockInfo extends Block implements LightWeightGSet.LinkedElement {
     assert dnIndex >= 0 : "Data node is not found: current";
     assert getPrevious(dnIndex) == null && getNext(dnIndex) == null : 
             "Block is already in the list and cannot be inserted.";
-    this.setPrevious(dnIndex, null);
+    this.setPrevious(dnIndex, null); // 设置当前BlockInfo对象为链表的头节点
     this.setNext(dnIndex, head);
     if(head != null)
       head.setPrevious(head.findStorageInfo(storage), this);
-    return this;
+    return this; // 返回当前节点作为链表的头节点
   }
 
   /**
@@ -368,11 +376,11 @@ public class BlockInfo extends Block implements LightWeightGSet.LinkedElement {
    */
   public BlockInfoUnderConstruction convertToBlockUnderConstruction(
       BlockUCState s, DatanodeStorageInfo[] targets) {
-    if(isComplete()) {
+    if(isComplete()) { // 构造BlockInfoUnderConstruction对象
       return new BlockInfoUnderConstruction(this,
           getBlockCollection().getBlockReplication(), s, targets);
     }
-    // the block is already under construction
+    // the block is already under construction 当前对象已经是BlockInfoUnderConstruction对象了
     BlockInfoUnderConstruction ucBlock = (BlockInfoUnderConstruction)this;
     ucBlock.setBlockUCState(s);
     ucBlock.setExpectedLocations(targets);

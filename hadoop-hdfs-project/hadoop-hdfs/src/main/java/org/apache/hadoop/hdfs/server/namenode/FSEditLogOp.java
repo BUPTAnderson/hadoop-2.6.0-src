@@ -3925,7 +3925,7 @@ public abstract class FSEditLogOp {
       op.writeFields(buf);
       int end = buf.getLength();
       
-      // write the length back: content of the op + 4 bytes checksum - op_code
+      // write the length back: content of the op + 4 bytes checksum - op_code， 这里的长度指的是：txid(long型) + fields + checksum(int型，下面会计算出并写入buf中)
       int length = end - start - 1;
       buf.writeInt(length, start + 1);
 

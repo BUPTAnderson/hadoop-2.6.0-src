@@ -577,10 +577,10 @@ public class DFSUtil {
       Configuration conf, String... keys) {
     String value = null;
     for (String key : keys) {
-      key = addSuffix(key, keySuffix);
+      key = addSuffix(key, keySuffix); // 比如：dfs.namenode.servicerpc-address.nameservice1.namenode1; dfs.namenode.rpc-address.nameservice1.namenode; dfs.namenode.servicerpc-address.nameservice1.namenode2; dfs.namenode.rpc-address.nameservice1.namenode2;
       value = conf.get(key);
       if (value != null) {
-        break;
+        break; // 由于这里直接break了，所以是dfs.namenode.servicerpc-address.nameservice1.namenode1; dfs.namenode.servicerpc-address.nameservice1.namenode2
       }
     }
     if (value == null) {
@@ -641,13 +641,17 @@ public class DFSUtil {
     // Look for configurations of the form <key>[.<nameserviceId>][.<namenodeId>]
     // across all of the configured nameservices and namenodes.
     Map<String, Map<String, InetSocketAddress>> ret = Maps.newLinkedHashMap();
+      // 遍历每个nameserviceId，做以下处理：
     for (String nsId : emptyAsSingletonNull(nsIds)) {
+      // 通过getAddressesForNameserviceId()方法获取nameNodeId->InetSocketAddress的对应关系，nameNodeId来自参数dfs.ha.namenodes.nsId
       Map<String, InetSocketAddress> isas =
         getAddressesForNameserviceId(conf, nsId, defaultAddress, keys);
       if (!isas.isEmpty()) {
+        // 将nameserviceId->{nameNodeId->InetSocketAddress}的对应关系放入集合ret
         ret.put(nsId, isas);
       }
     }
+    // 返回nameserviceId->{nameNodeId->InetSocketAddress}对应关系的集合ret
     return ret;
   }
   
@@ -668,12 +672,14 @@ public class DFSUtil {
   private static Map<String, InetSocketAddress> getAddressesForNameserviceId(
       Configuration conf, String nsId, String defaultValue,
       String... keys) {
-    Collection<String> nnIds = getNameNodeIds(conf, nsId);
+    Collection<String> nnIds = getNameNodeIds(conf, nsId); // 获取dfs.ha.namenodes.nsId，没有配置返回空集合，线上比如返回： namenode1，namenode2
     Map<String, InetSocketAddress> ret = Maps.newHashMap();
     for (String nnId : emptyAsSingletonNull(nnIds)) {
-      String suffix = concatSuffixes(nsId, nnId);
-      String address = getConfValue(defaultValue, suffix, conf, keys);
+      String suffix = concatSuffixes(nsId, nnId); // nnid为null的话，suffix为""， 线上会配置，比如nameservice1.namenode1; nameservice2.namenode2
+      // 根据keys获取address
+      String address = getConfValue(defaultValue, suffix, conf, keys); // 伪分布式，比如localhost:9000， 线上比如：BJ2188.local:8022
       if (address != null) {
+        // 将address封装成InetSocketAddress，得到isa
         InetSocketAddress isa = NetUtils.createSocketAddr(address);
         if (isa.isUnresolved()) {
           LOG.warn("Namenode for " + nsId +
@@ -836,15 +842,17 @@ public class DFSUtil {
     // Use default address as fall back
     String defaultAddress;
     try {
-      defaultAddress = NetUtils.getHostPortString(NameNode.getAddress(conf));
+      defaultAddress = NetUtils.getHostPortString(NameNode.getAddress(conf)); // 我这里获取的是localhost:9000, 线上比如："nameservice1:8020"
     } catch (IllegalArgumentException e) {
       defaultAddress = null;
     }
 
+    // 获取hdfs-site.xml中配置参数dfs.internal.nameservices的值, 通常不会配置该参数
     Collection<String> parentNameServices = conf.getTrimmedStringCollection
             (DFSConfigKeys.DFS_INTERNAL_NAMESERVICES_KEY);
 
     if (parentNameServices.isEmpty()) {
+      // 获取hdfs-site.xml中配置参数dfs.nameservices的值， federation模式下会配置该参数, 线上比如："nameservice1"
       parentNameServices = conf.getTrimmedStringCollection
               (DFSConfigKeys.DFS_NAMESERVICES);
     } else {
@@ -858,7 +866,8 @@ public class DFSUtil {
         }
       }
     }
-
+    // 调用getAddressesForNsIds()方法，获取nameserviceId->{nameNodeId->InetSocketAddress}对应关系的集合
+    // <nameservice1:  <namenode1 -> BJ2188.local/172.16.199.50:8022>, <namenode2 -> hadoop007.bx.momo.com/10.88.60.52:8022> >
     Map<String, Map<String, InetSocketAddress>> addressList =
             getAddressesForNsIds(conf, parentNameServices, defaultAddress,
                     DFS_NAMENODE_SERVICE_RPC_ADDRESS_KEY, DFS_NAMENODE_RPC_ADDRESS_KEY);
@@ -1314,16 +1323,19 @@ public class DFSUtil {
    * @throws HadoopIllegalArgumentException on error
    */
   private static String getNameServiceId(Configuration conf, String addressKey) {
+    // 获取${dfs.nameservice.id}, 为null
     String nameserviceId = conf.get(DFS_NAMESERVICE_ID);
     if (nameserviceId != null) {
       return nameserviceId;
     }
+    // 获取${dfs.nameservices}
     Collection<String> nsIds = getNameServiceIds(conf);
     if (1 == nsIds.size()) {
       return nsIds.toArray(new String[1])[0];
     }
+    // 获取${dfs.ha.namenode.id}, 为null
     String nnId = conf.get(DFS_HA_NAMENODE_ID_KEY);
-    
+    // 配置了多个nameservice， 会返回当前节点上配置的nameservice
     return getSuffixIDs(conf, addressKey, null, nnId, LOCAL_ADDRESS_MATCHER)[0];
   }
   

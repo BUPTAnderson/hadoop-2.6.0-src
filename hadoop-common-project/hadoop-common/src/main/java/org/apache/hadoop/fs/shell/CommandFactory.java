@@ -62,7 +62,7 @@ public class CommandFactory extends Configured {
    * @param registrarClass class to allow an opportunity to register
    */
   public void registerCommands(Class<?> registrarClass) {
-    try {
+    try { // 这里FsShell调用的时候传入的是FsCommand.class，即执行FsCommand的registerCommands方法，因为传入的参数是this，执行FsCommand的registerCommands方法注册每个类的时候又会再次反调用这个方法
       registrarClass.getMethod(
           "registerCommands", CommandFactory.class
       ).invoke(null, this);

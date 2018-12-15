@@ -26,15 +26,15 @@ import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.server.datanode.ReplicaInfo;
 
 /**
- * Maintains the replica map. 
+ * Maintains the replica map.  保存了datanode上所有数据块副本的信息
  */
 class ReplicaMap {
   // Object using which this class is synchronized
   private final Object mutex;
   
-  // Map of block pool Id to another map of block Id to ReplicaInfo.
+  // Map of block pool Id to another map of block Id to ReplicaInfo. ReplicaInfo描述数据块副本的信息，是一个抽象类
   private final Map<String, Map<Long, ReplicaInfo>> map =
-    new HashMap<String, Map<Long, ReplicaInfo>>();
+    new HashMap<String, Map<Long, ReplicaInfo>>(); // <block pool id, <block id, ReplicaInfo> >
   
   ReplicaMap(Object mutex) {
     if (mutex == null) {

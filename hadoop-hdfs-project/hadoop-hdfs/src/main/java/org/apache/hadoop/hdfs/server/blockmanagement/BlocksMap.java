@@ -101,11 +101,11 @@ class BlocksMap {
    */
   BlockInfo addBlockCollection(BlockInfo b, BlockCollection bc) {
     BlockInfo info = blocks.get(b);
-    if (info != b) {
+    if (info != b) { // 如果blocks中没有b，则返回null， 则info != b, 将b复制给info，再添加到blocks中。
       info = b;
       blocks.put(info);
     }
-    info.setBlockCollection(bc);
+    info.setBlockCollection(bc); // bc是INodeFile，即设置block所属的INodeFile
     return info;
   }
 

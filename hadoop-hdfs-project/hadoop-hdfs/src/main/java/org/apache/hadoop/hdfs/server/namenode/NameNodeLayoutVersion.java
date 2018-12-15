@@ -33,6 +33,7 @@ public class NameNodeLayoutVersion {
   public final static Map<Integer, SortedSet<LayoutFeature>> FEATURES
       = new HashMap<Integer, SortedSet<LayoutFeature>>();
 
+  // 调用LayoutVersion.getCurrentLayoutVersion方法，传入的是当前类的内部类Feature，枚举类的values
   public static final int CURRENT_LAYOUT_VERSION
       = LayoutVersion.getCurrentLayoutVersion(Feature.values());
 

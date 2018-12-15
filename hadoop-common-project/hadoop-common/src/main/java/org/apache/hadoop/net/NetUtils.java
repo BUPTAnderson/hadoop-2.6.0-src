@@ -681,7 +681,7 @@ public class NetUtils {
    * @return true if the address corresponds to the local node
    */
   public static boolean isLocalAddress(InetAddress addr) {
-    // Check if the address is any local or loop back
+    // Check if the address is any local or loop back // addr是Inet4Address对象，如果是短路操作的话，addr是0.0.0.0 则addr.isAnyLocalAddress()返回true
     boolean local = addr.isAnyLocalAddress() || addr.isLoopbackAddress();
 
     // Check if the address is defined on any interface

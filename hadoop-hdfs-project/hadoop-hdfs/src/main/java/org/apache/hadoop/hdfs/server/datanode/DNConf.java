@@ -138,7 +138,7 @@ public class DNConf {
         DFSConfigKeys.DFS_DATANODE_USE_DN_HOSTNAME,
         DFSConfigKeys.DFS_DATANODE_USE_DN_HOSTNAME_DEFAULT);
     this.blockReportInterval = conf.getLong(DFS_BLOCKREPORT_INTERVAL_MSEC_KEY,
-        DFS_BLOCKREPORT_INTERVAL_MSEC_DEFAULT);
+        DFS_BLOCKREPORT_INTERVAL_MSEC_DEFAULT); // blockReport汇报的间隔默认是21600000，即6小时
     this.blockReportSplitThreshold = conf.getLong(DFS_BLOCKREPORT_SPLIT_THRESHOLD_KEY,
                                             DFS_BLOCKREPORT_SPLIT_THRESHOLD_DEFAULT);
     this.cacheReportInterval = conf.getLong(DFS_CACHEREPORT_INTERVAL_MSEC_KEY,
@@ -150,7 +150,7 @@ public class DNConf {
     this.datanodeSlowIoWarningThresholdMs = conf.getLong(
         DFSConfigKeys.DFS_DATANODE_SLOW_IO_WARNING_THRESHOLD_KEY,
         DFSConfigKeys.DFS_DATANODE_SLOW_IO_WARNING_THRESHOLD_DEFAULT);
-
+    // blockreport第一次汇报的延迟，默认值是0, 注意如果设置的话，会对设置的值*1000,即设置的是延迟的秒数
     long initBRDelay = conf.getLong(
         DFS_BLOCKREPORT_INITIAL_DELAY_KEY,
         DFS_BLOCKREPORT_INITIAL_DELAY_DEFAULT) * 1000L;
@@ -159,7 +159,7 @@ public class DNConf {
       DataNode.LOG.info("dfs.blockreport.initialDelay is greater than " +
           "dfs.blockreport.intervalMsec." + " Setting initial delay to 0 msec:");
     }
-    initialBlockReportDelay = initBRDelay;
+    initialBlockReportDelay = initBRDelay; // blockreport第一次汇报的延迟，默认值是0
     
     heartBeatInterval = conf.getLong(DFS_HEARTBEAT_INTERVAL_KEY,
         DFS_HEARTBEAT_INTERVAL_DEFAULT) * 1000L;

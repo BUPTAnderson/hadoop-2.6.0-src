@@ -150,7 +150,9 @@ abstract public class Command extends Configured {
         displayWarning(
             "DEPRECATED: Please use '"+ getReplacementCommand() + "' instead.");
       }
+      // 处理参数
       processOptions(args);
+      // 执行实际操作
       processRawArguments(args);
     } catch (IOException e) {
       displayError(e);
@@ -187,6 +189,7 @@ abstract public class Command extends Configured {
    */
   protected void processRawArguments(LinkedList<String> args)
   throws IOException {
+    // 调用对应的处理类的processArguments方法
     processArguments(expandArguments(args));
   }
 
@@ -257,7 +260,7 @@ abstract public class Command extends Configured {
    */
   protected void processArgument(PathData item) throws IOException {
     if (item.exists) {
-      processPathArgument(item);
+      processPathArgument(item); // 如果是-put会继续调用当前类的processPathArgument方法
     } else {
       processNonexistentPath(item);
     }
@@ -303,10 +306,12 @@ abstract public class Command extends Configured {
     // TODO: this really should be iterative
     for (PathData item : items) {
       try {
+        // 对于-put命令，这个方法入口进入，就是传输数据的逻辑主体。对于-put这里调用的是CommandWithDestination的processPath方法
         processPath(item);
         if (recursive && item.stat.isDirectory()) {
           recursePath(item);
         }
+        // 数据上传完成后，这里进去做具体的收尾工作。
         postProcessPath(item);
       } catch (IOException e) {
         displayError(e);

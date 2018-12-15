@@ -350,9 +350,9 @@ public class FSImageSerialization {
 
   @SuppressWarnings("deprecation")
   public static void writeString(String str, DataOutput out) throws IOException {
-    DeprecatedUTF8 ustr = TL_DATA.get().U_STR;
+    DeprecatedUTF8 ustr = TL_DATA.get().U_STR; // TL_DATA是一个线程本地对象，目的是写日志时，减少对象的生成。否则，以String对象为例，要把String对象写到输出流中，先生成UTF8对象，先写生成的字节数组的长度，再写内容。如果写10000次String对像，要生成10000个UTF8类型的对象。采用线程本地对象，一个线程只用生成一个UTF8对象。
     ustr.set(str);
-    ustr.write(out);
+    ustr.write(out); // 先写入字符串的长度，再写入字符串
   }
 
   

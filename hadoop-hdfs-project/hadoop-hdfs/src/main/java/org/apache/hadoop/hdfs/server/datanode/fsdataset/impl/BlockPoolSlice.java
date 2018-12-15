@@ -56,27 +56,30 @@ import org.apache.hadoop.util.Time;
  * A block pool slice represents a portion of a block pool stored on a volume.  
  * Taken together, all BlockPoolSlices sharing a block pool ID across a 
  * cluster represent a single block pool.
- * 
+ *
  * This class is synchronized by {@link FsVolumeImpl}.
+ *
+ * 管理一个指定块池在一个指定存储目录下的所有数据块， 比如管理/Users/momo/software/hadoop-2.6.0/hadoop-data1/current/BP-1298850809-172.16.99.10-1525839474746下所有的数据块
+ * 由于datanode可以定义多个存储目录，所以块池的数据块会分布在多个存储目录下。一个块池会拥有多个BlockPoolSlice对象，这个块池对应的所有BlockPoolSlice对象共同管理块池的所有数据块
  */
 class BlockPoolSlice {
   static final Log LOG = LogFactory.getLog(BlockPoolSlice.class);
 
-  private final String bpid;
+  private final String bpid; // 当前BlockPoolSlice对应的块池id
   private final FsVolumeImpl volume; // volume to which this BlockPool belongs to
   private final File currentDir; // StorageDirectory/current/bpid/current
   // directory where finalized replicas are stored
-  private final File finalizedDir;
-  private final File lazypersistDir;
-  private final File rbwDir; // directory store RBW replica
-  private final File tmpDir; // directory store Temporary replica
+  private final File finalizedDir; // StorageDirectory/current/bpid/current/finalized
+  private final File lazypersistDir; // StorageDirectory/current/bpid/current/lazypersistDir
+  private final File rbwDir; // directory store RBW replica  StorageDirectory/current/bpid/current/rbw
+  private final File tmpDir; // directory store Temporary replica ,  StorageDirectory/current/bpid/tmp
   private static final String DU_CACHE_FILE = "dfsUsed";
   private volatile boolean dfsUsedSaved = false;
   private static final int SHUTDOWN_HOOK_PRIORITY = 30;
   private final boolean deleteDuplicateReplicas;
   
   // TODO:FEDERATION scalability issue - a thread per DU is needed
-  private final DU dfsUsage;
+  private final DU dfsUsage; // 描述当前块池目录的磁盘使用情况
 
   /**
    * Create a blook pool slice 
@@ -132,10 +135,10 @@ class BlockPoolSlice {
     }
     // Use cached value initially if available. Or the following call will
     // block until the initial du command completes.
-    this.dfsUsage = new DU(bpDir, conf, loadDfsUsed());
-    this.dfsUsage.start();
+    this.dfsUsage = new DU(bpDir, conf, loadDfsUsed()); // loadDfsUsed方法是读取块池目录下的dfsUsed文件来获取使用数据量，比如：hadoop-data1/current/BP-38265890-172.16.199.10-1527073441544/current/dfsUsed ，该文件记录的是某个时刻使用量和时间戳，比如：77824 1529026829047，如果记录的这个时间戳与当前时间差值小于10分钟，则认为该值有效。
+    this.dfsUsage.start(); // 启动一个线程，定时执行du -sk命令，来获取磁盘使用量
 
-    // Make the dfs usage to be saved during shutdown.
+    // Make the dfs usage to be saved during shutdown. datanode关闭时保存使用量到dfsUsed文件
     ShutdownHookManager.get().addShutdownHook(
       new Runnable() {
         @Override
@@ -223,6 +226,7 @@ class BlockPoolSlice {
    * Write the current dfsUsed to the cache file.
    */
   void saveDfsUsed() {
+    // 创建文件// StorageDirectory/current/bpid/current/dfsUsed
     File outFile = new File(currentDir, DU_CACHE_FILE);
     if (outFile.exists() && !outFile.delete()) {
       FsDatasetImpl.LOG.warn("Failed to delete old dfsUsed file in " +
@@ -234,7 +238,7 @@ class BlockPoolSlice {
       long used = getDfsUsed();
       if (used > 0) {
         out = new FileWriter(outFile);
-        // mtime is written last, so that truncated writes won't be valid.
+        // mtime is written last, so that truncated writes won't be valid. 将使用量和13位时间戳写入dfsUsed文件
         out.write(Long.toString(used) + " " + Long.toString(Time.now()));
         out.flush();
         out.close();
@@ -263,19 +267,22 @@ class BlockPoolSlice {
    * the block is finalized.
    */
   File createRbwFile(Block b) throws IOException {
-    File f = new File(rbwDir, b.getBlockName());
-    return DatanodeUtil.createTmpFile(b, f);
+    File f = new File(rbwDir, b.getBlockName()); // 创建block对应的File对象：blockpoolID/current/rbw/blk_blockId
+    return DatanodeUtil.createTmpFile(b, f); // 执行真正的创建，createTmpFile会调用File.createNewFile()在rbw目录下创建block文件
   }
 
   File addBlock(Block b, File f) throws IOException {
+    // 创建副本在finalized目录的存储路径
     File blockDir = DatanodeUtil.idToBlockDir(finalizedDir, b.getBlockId());
     if (!blockDir.exists()) {
       if (!blockDir.mkdirs()) {
         throw new IOException("Failed to mkdirs " + blockDir);
       }
     }
+    // 在存储路径中创建数据块副本文件以及校验文件，副本文件时间是将文件f重命名为目标文件
     File blockFile = FsDatasetImpl.moveBlockFiles(b, f, blockDir);
     File metaFile = FsDatasetUtil.getMetaFile(blockFile, b.getGenerationStamp());
+    // 更dfsUsage， 增加block大小 + block meta文件大小
     dfsUsage.incDfsUsed(b.getNumBytes()+metaFile.length());
     return blockFile;
   }
@@ -309,6 +316,7 @@ class BlockPoolSlice {
       throws IOException {
     // Recover lazy persist replicas, they will be added to the volumeMap
     // when we scan the finalized directory.
+    // 恢复lazyPersist状态的副本，先将他们转变为FINALIZED状态
     if (lazypersistDir.exists()) {
       int numRecovered = moveLazyPersistReplicasToFinalized(lazypersistDir);
       FsDatasetImpl.LOG.info(
@@ -331,12 +339,14 @@ class BlockPoolSlice {
     File blockFile = FsDatasetUtil.getOrigFile(unlinkedTmp);
     if (blockFile.exists()) {
       // If the original block file still exists, then no recovery is needed.
+      // 源文件存在，则删除临时文件，如果删除失败则抛出异常
       if (!unlinkedTmp.delete()) {
         throw new IOException("Unable to cleanup unlinked tmp file " +
             unlinkedTmp);
       }
       return null;
     } else {
+      // 源文件不存在，则将临时文件改为源文件
       if (!unlinkedTmp.renameTo(blockFile)) {
         throw new IOException("Unable to rename unlinked tmp file " +
             unlinkedTmp);
@@ -419,26 +429,33 @@ class BlockPoolSlice {
                         final RamDiskReplicaTracker lazyWriteReplicaMap,
                         boolean isFinalized)
       throws IOException {
+    // 循环遍历文件夹中的所有文件
     File files[] = FileUtil.listFiles(dir);
     for (File file : files) {
       if (file.isDirectory()) {
+        // 如果是文件夹，递归调用addToReplicasMap方法
         addToReplicasMap(volumeMap, file, lazyWriteReplicaMap, isFinalized);
       }
 
+      // 如果存在以.unlinked结尾的临时文件，则首先进行临时文件的恢复操作
       if (isFinalized && FsDatasetUtil.isUnlinkTmpFile(file)) {
         file = recoverTempUnlinkedBlock(file);
         if (file == null) { // the original block still exists, so we cover it
           // in another iteration and can continue here
+          // 如果临时文件对应的源文件存在，说明以及处理过或随后会被处理，则跳过该文件
           continue;
         }
       }
-      if (!Block.isBlockFilename(file))
+      if (!Block.isBlockFilename(file)) // 如果不是blk文件，跳过，即跳过blk_..._meta文件
         continue;
-      
+
+      // 获取blk的时间戳，根据meta文件获取，比如对应的meta文件是blk_1234567890_1001.meta，返回的是1001
       long genStamp = FsDatasetUtil.getGenerationStampFromFile(
           files, file);
+      // 获取blk的id，比如blk_1234567890，返回的是1234567890
       long blockId = Block.filename2id(file.getName());
       ReplicaInfo newReplica = null;
+      // 如果是finalized文件夹，则将所有数据块加载为FINALIZED状态
       if (isFinalized) {
         newReplica = new FinalizedReplica(blockId, 
             file.length(), genStamp, volume, file.getParentFile());
@@ -450,11 +467,12 @@ class BlockPoolSlice {
         Scanner sc = null;
         try {
           sc = new Scanner(restartMeta);
-          // The restart meta file exists
+          // The restart meta file exists 重启元数据文件存在，并且当前时间在重启窗口内
           if (sc.hasNextLong() && (sc.nextLong() > Time.now())) {
             // It didn't expire. Load the replica as a RBW.
             // We don't know the expected block length, so just use 0
             // and don't reserve any more space for writes.
+            // 将数据块加载为RBW状态
             newReplica = new ReplicaBeingWritten(blockId,
                 validateIntegrityAndSetLength(file, genStamp), 
                 genStamp, volume, file.getParentFile(), null, 0);
@@ -473,6 +491,7 @@ class BlockPoolSlice {
           }
         }
         // Restart meta doesn't exist or expired.
+        // 重启元数据文件不存在，则将数据块加载为RWR状态
         if (loadRwr) {
           newReplica = new ReplicaWaitingToBeRecovered(blockId,
               validateIntegrityAndSetLength(file, genStamp),
@@ -480,6 +499,7 @@ class BlockPoolSlice {
         }
       }
 
+      // 将数据块信息放入volumeMap中
       ReplicaInfo oldReplica = volumeMap.get(bpid, newReplica.getBlockId());
       if (oldReplica == null) {
         volumeMap.add(bpid, newReplica);
@@ -507,12 +527,12 @@ class BlockPoolSlice {
    *
    * Given two replicas, decide which one to keep. The preference is as
    * follows:
-   *   1. Prefer the replica with the higher generation stamp.
+   *   1. Prefer the replica with the higher generation stamp. 选择时间戳大的文件
    *   2. If generation stamps are equal, prefer the replica with the
-   *      larger on-disk length.
+   *      larger on-disk length. 时间戳相同，选择文件长度大的文件
    *   3. If on-disk length is the same, prefer the replica on persistent
-   *      storage volume.
-   *   4. All other factors being equal, keep replica1.
+   *      storage volume. 如果文件长度也相同，则选择在持久化卷上的文件
+   *   4. All other factors being equal, keep replica1. 如果上述三项都相同，则选择第一个文件
    *
    * The other replica is removed from the volumeMap and is deleted from
    * its storage volume.

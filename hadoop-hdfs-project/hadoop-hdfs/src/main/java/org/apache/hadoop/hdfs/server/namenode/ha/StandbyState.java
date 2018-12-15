@@ -45,7 +45,8 @@ public class StandbyState extends HAState {
 
   @Override
   public void setState(HAContext context, HAState s) throws ServiceFailedException {
-    if (s == NameNode.ACTIVE_STATE) {
+    if (s == NameNode.ACTIVE_STATE) { // 对于Standby节点，只有转换为Active状态时，才执行转换操作
+      // 调用setStateInternal
       setStateInternal(context, s);
       return;
     }
@@ -69,6 +70,7 @@ public class StandbyState extends HAState {
   @Override
   public void exitState(HAContext context) throws ServiceFailedException {
     try {
+      // 调用stopStandbyServices
       context.stopStandbyServices();
     } catch (IOException e) {
       throw new ServiceFailedException("Failed to stop standby services", e);

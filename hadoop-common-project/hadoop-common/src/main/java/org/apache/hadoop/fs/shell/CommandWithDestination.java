@@ -217,6 +217,7 @@ abstract class CommandWithDestination extends FsCommand {
     } else if (!dst.parentExists()) {
       throw new PathNotFoundException(dst.toString());
     }
+    // 继续调用Command的方法
     super.processArguments(args);
   }
 
@@ -260,6 +261,7 @@ abstract class CommandWithDestination extends FsCommand {
       // copy the symlink or deref the symlink
       throw new PathOperationException(src.toString());        
     } else if (src.stat.isFile()) {
+      // 这里进入拷贝数据流程，从src路径拷往dst。
       copyFileToTarget(src, dst);
     } else if (src.stat.isDirectory() && !isRecursive()) {
       throw new PathIsDirectoryException(src.toString());
@@ -325,6 +327,7 @@ abstract class CommandWithDestination extends FsCommand {
     InputStream in = null;
     try {
       in = src.fs.open(src.path);
+      // 继续调用
       copyStreamToTarget(in, target);
       preserveAttributes(src, target, preserveRawXattrs);
     } finally {
@@ -388,7 +391,9 @@ abstract class CommandWithDestination extends FsCommand {
     try {
       PathData tempTarget = target.suffix("._COPYING_");
       targetFs.setWriteChecksum(writeChecksum);
+      // 写入数据
       targetFs.writeStreamToFile(in, tempTarget, lazyPersist);
+      // 将写入的文件重命名，拷贝的过程中可以发现在目标目录先有个“xxx._COPYING_的文件
       targetFs.rename(tempTarget, target);
     } finally {
       targetFs.close(); // last ditch effort to ensure temp file is removed
@@ -462,7 +467,9 @@ abstract class CommandWithDestination extends FsCommand {
                            boolean lazyPersist) throws IOException {
       FSDataOutputStream out = null;
       try {
+        // 建立输出流（到HDFS集群上的流）
         out = create(target, lazyPersist);
+        // 由工具类IOUtils执行具体的拷贝工作
         IOUtils.copyBytes(in, out, getConf(), true);
       } finally {
         IOUtils.closeStream(out); // just in case copyBytes didn't

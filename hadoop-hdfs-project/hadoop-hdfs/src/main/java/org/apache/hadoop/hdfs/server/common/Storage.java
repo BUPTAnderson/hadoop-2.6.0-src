@@ -117,7 +117,7 @@ public abstract class Storage extends StorageInfo {
     public StorageDirType getStorageDirType();
     public boolean isOfType(StorageDirType type);
   }
-  
+  // 配置的存储目录，比如[SSD]file:/Users/momo/software/hadoop-2.6.0/hadoop-data1/，[SSD]file:/Users/momo/software/hadoop-2.6.0/hadoop-data2/
   protected List<StorageDirectory> storageDirs = new ArrayList<StorageDirectory>();
   
   private class DirIterator implements Iterator<StorageDirectory> {
@@ -364,6 +364,7 @@ public abstract class Storage extends StorageInfo {
      * @return the version file path
      */
     public File getVersionFile() {
+      // namenode调用，返回/tmp/hadoop-momo/dfs/name/current/VERSION；datanode调用，返回/tmp/hadoop-momo/dfs/data/current/VERSION
       return new File(new File(root, STORAGE_DIR_CURRENT), STORAGE_FILE_VERSION);
     }
 
@@ -468,7 +469,7 @@ public abstract class Storage extends StorageInfo {
         throws IOException {
       assert root != null : "root is null";
       boolean hadMkdirs = false;
-      String rootPath = root.getCanonicalPath();
+      String rootPath = root.getCanonicalPath(); // rootPath就是当前Storage对象对应的目录，是${dfs.datanode.data.dir}参数配置的某个目录
       try { // check that storage exists
         if (!root.exists()) {
           // storage directory does not exist
@@ -496,7 +497,7 @@ public abstract class Storage extends StorageInfo {
         return StorageState.NON_EXISTENT;
       }
 
-      this.lock(); // lock storage if it exists
+      this.lock(); // lock storage if it exists 锁定，会在目录下创建一个in_use.lock文件
 
       // If startOpt is HOTSWAP, it returns NOT_FORMATTED for empty directory,
       // while it also checks the layout version.
@@ -510,18 +511,24 @@ public abstract class Storage extends StorageInfo {
 
       // check whether current directory is valid
       File versionFile = getVersionFile();
-      boolean hasCurrent = versionFile.exists();
+      boolean hasCurrent = versionFile.exists(); // 初次初始化调用，VERSION文件不存在，正常启动的时候VERSION文件已经存在了
 
       // check which directories exist
+      // ${dfs.namenode.name.dir}/previous是否存在, dfs.namenode.name.dir默认值是/tmp/hadoop-${username}/dfs/data, 比如我的用户是momo，则dfs.namenode.name.dir是/tmp/hadoop-momo/dfs/data
       boolean hasPrevious = getPreviousDir().exists();
+      // ${dfs.namenode.name.dir}/previous.tmp是否存在
       boolean hasPreviousTmp = getPreviousTmp().exists();
+      // ${dfs.namenode.name.dir}/removed.tmp是否存在
       boolean hasRemovedTmp = getRemovedTmp().exists();
+      // ${dfs.namenode.name.dir}/finalized.tmp是否存在
       boolean hasFinalizedTmp = getFinalizedTmp().exists();
+      // ${dfs.namenode.name.dir}/lastcheckpoint.tmp是否存在
       boolean hasCheckpointTmp = getLastCheckpointTmp().exists();
 
       if (!(hasPreviousTmp || hasRemovedTmp
           || hasFinalizedTmp || hasCheckpointTmp)) {
         // no temp dirs - no recovery
+          // 默认情况下tmp文件夹都不存在，VERSION文件也不存在，返回NOT_FORMATTED， 初始化之后正常启动话 hasCurrent为true，则返回NORMAL
         if (hasCurrent)
           return StorageState.NORMAL;
         if (hasPrevious)
@@ -698,8 +705,9 @@ public abstract class Storage extends StorageInfo {
     @SuppressWarnings("resource")
     FileLock tryLock() throws IOException {
       boolean deletionHookAdded = false;
+      // 构造in_use.lock文件
       File lockF = new File(root, STORAGE_FILE_LOCK);
-      if (!lockF.exists()) {
+      if (!lockF.exists()) { // 锁文件已经存在
         lockF.deleteOnExit();
         deletionHookAdded = true;
       }
@@ -707,10 +715,13 @@ public abstract class Storage extends StorageInfo {
       String jvmName = ManagementFactory.getRuntimeMXBean().getName();
       FileLock res = null;
       try {
+        // 尝试在锁文件上加锁
         res = file.getChannel().tryLock();
+        // 有程序已经获取了锁，直接抛出异常
         if (null == res) {
           throw new OverlappingFileLockException();
         }
+        // 加锁成功，在锁文件中写入虚拟机信息
         file.write(jvmName.getBytes(Charsets.UTF_8));
         LOG.info("Lock on " + lockF + " acquired by nodename " + jvmName);
       } catch(OverlappingFileLockException oe) {
@@ -718,11 +729,13 @@ public abstract class Storage extends StorageInfo {
         String lockingJvmName = Path.WINDOWS ? "" : (" " + file.readLine());
         LOG.error("It appears that another namenode" + lockingJvmName
             + " has already locked the storage directory");
+        // 已经有程序获取了锁，则关闭锁文件，返回null
         file.close();
         return null;
       } catch(IOException e) {
         LOG.error("Failed to acquire lock on " + lockF + ". If this storage directory is mounted via NFS, " 
             + "ensure that the appropriate nfs lock services are running.", e);
+        // 读取锁文件失败，则关闭锁文件，抛出异常
         file.close();
         throw e;
       }
@@ -730,6 +743,7 @@ public abstract class Storage extends StorageInfo {
         // If the file existed prior to our startup, we didn't
         // call deleteOnExit above. But since we successfully locked
         // the dir, we can take care of cleaning it up.
+        // 加锁成功，在虚拟机运行结束后，删除锁文件
         lockF.deleteOnExit();
       }
       return res;
@@ -743,7 +757,9 @@ public abstract class Storage extends StorageInfo {
     public void unlock() throws IOException {
       if (this.lock == null)
         return;
+      // 释放锁
       this.lock.release();
+      // 关闭channel
       lock.channel().close();
       lock = null;
     }
@@ -847,7 +863,7 @@ public abstract class Storage extends StorageInfo {
    */
   public static void checkVersionUpgradable(int oldVersion) 
                                      throws IOException {
-    if (oldVersion > LAST_UPGRADABLE_LAYOUT_VERSION) {
+    if (oldVersion > LAST_UPGRADABLE_LAYOUT_VERSION) { // 如果存储目录中的版本号小于内存中的版本号，则抛出异常
       String msg = "*********** Upgrade is not supported from this " +
                    " older version " + oldVersion + 
                    " of storage to the current version." + 
@@ -949,12 +965,15 @@ public abstract class Storage extends StorageInfo {
    * Write properties to the VERSION file in the given storage directory.
    */
   public void writeProperties(StorageDirectory sd) throws IOException {
+    // 写properties信息到VERSION文件
     writeProperties(sd.getVersionFile(), sd);
   }
   
   public void writeProperties(File to, StorageDirectory sd) throws IOException {
     Properties props = new Properties();
+    // 这个方法被重写了， 如果是namenode格式化操作，这里实际调用的是NNStorage的setPropertiesFromFields方法
     setPropertiesFromFields(props, sd);
+    // 将props写入文件中
     writeProperties(to, sd, props);
   }
 
@@ -969,6 +988,7 @@ public abstract class Storage extends StorageInfo {
        * If server is interrupted before this line, 
        * the version file will remain unchanged.
        */
+      // 将props写入out，会在文件的开头写入一行日期的注释信息，比如：#Tue May 08 11:29:23 CST 2018
       props.store(out, null);
       /*
        * Now the new fields are flushed to the head of the file, but file 

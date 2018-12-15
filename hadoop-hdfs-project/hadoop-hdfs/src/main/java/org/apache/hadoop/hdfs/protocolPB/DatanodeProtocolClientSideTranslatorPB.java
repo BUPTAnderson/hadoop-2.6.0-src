@@ -87,6 +87,7 @@ public class DatanodeProtocolClientSideTranslatorPB implements
     RPC.setProtocolEngine(conf, DatanodeProtocolPB.class,
         ProtobufRpcEngine.class);
     UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
+    // 通过动态代理获取DatanodeProtocolPB的代理， 该代理会把datanode调用DatanodeProtocol接口的方法转换成调用DatanodeProtocolService.BlockingInterface(protobuf文件编译生成)接口的方法
     rpcProxy = createNamenode(nameNodeAddr, conf, ugi);
   }
 
@@ -265,6 +266,17 @@ public class DatanodeProtocolClientSideTranslatorPB implements
     }
   }
 
+  /**
+   *
+   * @param block 被恢复的数据块
+   * @param newgenerationstamp 租约恢复以后新的时间戳
+   * @param newlength 租约恢复以后副本的长度
+   * @param closeFile 是否关闭数据块对应的HDFS文件
+   * @param deleteblock 是否直接删除这个数据块
+   * @param newtargets 租约恢复以后保存这个数据块副本的数据节点列表
+   * @param newtargetstorages 保存了数据节点的存储信息
+   * @throws IOException
+   */
   @Override
   public void commitBlockSynchronization(ExtendedBlock block,
       long newgenerationstamp, long newlength, boolean closeFile,

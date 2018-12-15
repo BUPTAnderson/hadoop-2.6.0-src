@@ -120,17 +120,17 @@ public class ReflectionUtils {
   public static <T> T newInstance(Class<T> theClass, Configuration conf) {
     T result;
     try {
-      Constructor<T> meth = (Constructor<T>) CONSTRUCTOR_CACHE.get(theClass);
+      Constructor<T> meth = (Constructor<T>) CONSTRUCTOR_CACHE.get(theClass); // 初次调用，返回null
       if (meth == null) {
-        meth = theClass.getDeclaredConstructor(EMPTY_ARRAY);
-        meth.setAccessible(true);
-        CONSTRUCTOR_CACHE.put(theClass, meth);
+        meth = theClass.getDeclaredConstructor(EMPTY_ARRAY); // 获取DistributedFileSystem的空参数的构造方法
+        meth.setAccessible(true); // 设置构造方法可访问
+        CONSTRUCTOR_CACHE.put(theClass, meth); // 缓存到CONSTRUCTOR_CACHE中
       }
-      result = meth.newInstance();
+      result = meth.newInstance(); // 通过构造方法构造DistributedFileSystem对象
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
-    setConf(result, conf);
+    setConf(result, conf); // 将conf设置给result
     return result;
   }
 

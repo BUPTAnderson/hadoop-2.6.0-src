@@ -61,6 +61,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
+ * ShortCircuitCache跟踪客户端需要通过短路访问HDFS块文件的事情。
+ * 这些东西包括：内存映射区域，文件描述符和用于与DataNode进行通信的共享内存区域。
  * The ShortCircuitCache tracks things which the client needs to access
  * HDFS block files via short-circuit.
  *
@@ -343,18 +345,25 @@ public class ShortCircuitCache implements Closeable {
    */
   public static ShortCircuitCache fromConf(Configuration conf) {
     return new ShortCircuitCache(
+        // DFSClient维护最近打开的文件描述符的缓存。 此参数控制该缓存的大小。 将此值设置得更高将使用更多文件描述符，但可能会在涉及大量搜索的工作负载上提供更好的性能。
         conf.getInt(DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_STREAMS_CACHE_SIZE_KEY,
             DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_STREAMS_CACHE_SIZE_DEFAULT),
+        // 文件描述符在非活动状态下的过期时间
         conf.getLong(DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_STREAMS_CACHE_EXPIRY_MS_KEY,
             DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_STREAMS_CACHE_EXPIRY_MS_DEFAULT),
+        // 使用零拷贝读取时，DFSClient会保留最近使用的内存映射区域的缓存。 此参数控制我们将保留在该缓存中的最大条目数。
         conf.getInt(DFSConfigKeys.DFS_CLIENT_MMAP_CACHE_SIZE,
             DFSConfigKeys.DFS_CLIENT_MMAP_CACHE_SIZE_DEFAULT),
+        // 我们在使用前缓存中保留mmap条目的最短时间。 如果条目在缓存中的时间超过此值，并且没有人使用它，则后台线程将删除该条目。
         conf.getLong(DFSConfigKeys.DFS_CLIENT_MMAP_CACHE_TIMEOUT_MS,
             DFSConfigKeys.DFS_CLIENT_MMAP_CACHE_TIMEOUT_MS_DEFAULT),
+        // 在重试失败的mmap操作之前我们将等待的最短时间。
         conf.getLong(DFSConfigKeys.DFS_CLIENT_MMAP_RETRY_TIMEOUT_MS,
             DFSConfigKeys.DFS_CLIENT_MMAP_RETRY_TIMEOUT_MS_DEFAULT),
+        // 如果没有来自DataNode的通信，短路副本有效的最长时间。 经过这段时间后，即使它在缓存中，我们也会重新获取短路副本。
         conf.getLong(DFSConfigKeys.DFS_CLIENT_SHORT_CIRCUIT_REPLICA_STALE_THRESHOLD_MS,
             DFSConfigKeys.DFS_CLIENT_SHORT_CIRCUIT_REPLICA_STALE_THRESHOLD_MS_DEFAULT),
+        // 短路共享内存观察器在检查从其他线程发送的Java中断之间的时间长度（以毫秒为单位）。 这主要用于单元测试。
         conf.getInt(DFSConfigKeys.DFS_SHORT_CIRCUIT_SHARED_MEMORY_WATCHER_INTERRUPT_CHECK_MS,
             DFSConfigKeys.DFS_SHORT_CIRCUIT_SHARED_MEMORY_WATCHER_INTERRUPT_CHECK_MS_DEFAULT));
   }
@@ -714,6 +723,7 @@ public class ShortCircuitCache implements Closeable {
     } finally {
       lock.unlock();
     }
+    // 调用create方法
     return create(key, creator, newWaitable);
   }
 
@@ -780,6 +790,7 @@ public class ShortCircuitCache implements Closeable {
       if (LOG.isTraceEnabled()) {
         LOG.trace(this + ": loading " + key);
       }
+      // 调用BlockReaderFactory的createShortCircuitReplicaInfo方法
       info = creator.createShortCircuitReplicaInfo();
     } catch (RuntimeException e) {
       LOG.warn(this + ": failed to load " + key, e);
@@ -868,6 +879,7 @@ public class ShortCircuitCache implements Closeable {
     } finally {
       lock.unlock();
     }
+    // 调用
     MappedByteBuffer map = replica.loadMmapInternal();
     lock.lock();
     try {

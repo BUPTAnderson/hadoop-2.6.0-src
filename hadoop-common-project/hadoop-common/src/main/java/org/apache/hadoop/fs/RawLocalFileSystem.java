@@ -54,7 +54,7 @@ import org.apache.hadoop.util.StringUtils;
 @InterfaceStability.Stable
 public class RawLocalFileSystem extends FileSystem {
   static final URI NAME = URI.create("file:///");
-  private Path workingDir;
+  private Path workingDir; // 默认是HADOOP_HOME
   // Temporary workaround for HADOOP-9652.
   private static boolean useDeprecatedFileStatus = true;
 

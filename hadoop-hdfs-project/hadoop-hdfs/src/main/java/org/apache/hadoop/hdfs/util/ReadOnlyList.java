@@ -70,7 +70,7 @@ public interface ReadOnlyList<E> extends Iterable<E> {
       for(int upper = list.size() - 1; lower <= upper; ) {
         final int mid = (upper + lower) >>> 1;
 
-        final int d = list.get(mid).compareTo(key);
+        final int d = list.get(mid).compareTo(key); // 调用INode的compareTo方法
         if (d == 0) {
           return mid;
         } else if (d > 0) {

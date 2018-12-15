@@ -401,7 +401,7 @@ public class NameNode implements NameNodeStatusMXBean {
    */
   public static InetSocketAddress getServiceAddress(Configuration conf,
                                                         boolean fallback) {
-    String addr = conf.get(DFS_NAMENODE_SERVICE_RPC_ADDRESS_KEY);
+    String addr = conf.get(DFS_NAMENODE_SERVICE_RPC_ADDRESS_KEY); // 8022
     if (addr == null || addr.isEmpty()) {
       return fallback ? getAddress(conf) : null;
     }
@@ -409,8 +409,8 @@ public class NameNode implements NameNodeStatusMXBean {
   }
 
   public static InetSocketAddress getAddress(Configuration conf) {
-    URI filesystemURI = FileSystem.getDefaultUri(conf);
-    return getAddress(filesystemURI);
+    URI filesystemURI = FileSystem.getDefaultUri(conf); // 比如："hdfs://nameservice1"
+    return getAddress(filesystemURI); // 比如："nameservice1"
   }
 
 
@@ -533,6 +533,7 @@ public class NameNode implements NameNodeStatusMXBean {
   }
 
   protected void loadNamesystem(Configuration conf) throws IOException {
+    // 继续调用loadFromDisk, 通过加载fsimage和edits log来初始化FSNamesystem
     this.namesystem = FSNamesystem.loadFromDisk(conf);
   }
 
@@ -572,8 +573,8 @@ public class NameNode implements NameNodeStatusMXBean {
    * @param conf the configuration
    */
   protected void initialize(Configuration conf) throws IOException {
-    if (conf.get(HADOOP_USER_GROUP_METRICS_PERCENTILES_INTERVALS) == null) {
-      String intervals = conf.get(DFS_METRICS_PERCENTILES_INTERVALS_KEY);
+    if (conf.get(HADOOP_USER_GROUP_METRICS_PERCENTILES_INTERVALS) == null) { // 返回null
+      String intervals = conf.get(DFS_METRICS_PERCENTILES_INTERVALS_KEY); // 返回null
       if (intervals != null) {
         conf.set(HADOOP_USER_GROUP_METRICS_PERCENTILES_INTERVALS,
           intervals);
@@ -618,7 +619,7 @@ public class NameNode implements NameNodeStatusMXBean {
     pauseMonitor.start();
     metrics.getJvmMetrics().setPauseMonitor(pauseMonitor);
 
-    // 启动httpServer(针对role不是"NameNode")以及rpcServer
+    // 启动httpServer(针对role不是"NameNode")以及rpcServer, 注册MBean等操作
     startCommonServices(conf);
   }
   
@@ -633,7 +634,7 @@ public class NameNode implements NameNodeStatusMXBean {
 
   /** Start the services common to active and standby states */
   private void startCommonServices(Configuration conf) throws IOException {
-    namesystem.startCommonServices(conf, haContext);
+    namesystem.startCommonServices(conf, haContext); // 调用FSNamesystem.startCommonServices方法
     registerNNSMXBean();
     // role不是"NameNode"的话启动httpServer
     if (NamenodeRole.NAMENODE != role) {
@@ -767,7 +768,7 @@ public class NameNode implements NameNodeStatusMXBean {
     this.haEnabled = HAUtil.isHAEnabled(conf, nsId);
     // 对于伪分布式情况，namenode仍然拥有一个HAState， 此时， namenode的state是ACTIVE_STATE， 对于开启了HA的情况，返回的是STANDBY_STATE
     state = createHAState(getStartupOption(conf));
-    this.allowStaleStandbyReads = HAUtil.shouldAllowStandbyReads(conf);
+    this.allowStaleStandbyReads = HAUtil.shouldAllowStandbyReads(conf); // false
     this.haContext = createHAContext();
     try {
       initializeGenericKeys(conf, nsId, namenodeId);
@@ -930,32 +931,36 @@ public class NameNode implements NameNodeStatusMXBean {
       SecurityUtil.login(conf, DFS_NAMENODE_KEYTAB_FILE_KEY,
           DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY, socAddr.getHostName());
     }
-    
+
+    // 获取存放fsimage的目录:${dfs.namenode.name.dir}
     Collection<URI> nameDirsToFormat = FSNamesystem.getNamespaceDirs(conf);
     List<URI> sharedDirs = FSNamesystem.getSharedEditsDirs(conf);
     List<URI> dirsToPrompt = new ArrayList<URI>();
     dirsToPrompt.addAll(nameDirsToFormat);
     dirsToPrompt.addAll(sharedDirs);
+    // 获取存放editlog的目录, 包括${dfs.namenode.shared.edit.dir}和${dfs.namenode.edit.dir}目录。
     List<URI> editDirsToFormat = 
                  FSNamesystem.getNamespaceEditsDirs(conf);
 
-    // if clusterID is not provided - see if you can find the current one
+    // if clusterID is not provided - see if you can find the current one 获取传入的cludterId参数
     String clusterId = StartupOption.FORMAT.getClusterId();
     if(clusterId == null || clusterId.equals("")) {
-      //Generate a new cluster id
+      //Generate a new cluster id, 如果用户没有传入clusterid参数，则随机生成一个clusterid，比如：CID-307818d1-58ab-4807-8025-58ceef3f36bb
       clusterId = NNStorage.newClusterID();
     }
     System.out.println("Formatting using clusterid: " + clusterId);
-    
+    // 构造FSImage
     FSImage fsImage = new FSImage(conf, nameDirsToFormat, editDirsToFormat);
     try {
       FSNamesystem fsn = new FSNamesystem(conf, fsImage);
+      // 初始化editlog
       fsImage.getEditLog().initJournalsForWrite();
 
-      if (!fsImage.confirmFormat(force, isInteractive)) {
+      if (!fsImage.confirmFormat(force, isInteractive)) { // 默认force是false，isInteractive是true，即与用户交互，终端输出：Re-format filesystem in Storage Directory /Users/momo/software/hadoop-2.6.0/hadoop-name ? (Y or N)， 输入Y的话返回true，跳过if
         return true; // aborted
       }
 
+      // 格式化操作
       fsImage.format(fsn, clusterId);
     } catch (IOException ioe) {
       LOG.warn("Encountered exception during format: ", ioe);
@@ -997,11 +1002,13 @@ public class NameNode implements NameNodeStatusMXBean {
   private static Configuration getConfigurationWithoutSharedEdits(
       Configuration conf)
       throws IOException {
+    // 如果没有配置${dfs.namenode.edits.dir}， 返回的是${dfs.namenode.name.dir}配置项的值
     List<URI> editsDirs = FSNamesystem.getNamespaceEditsDirs(conf, false);
     String editsDirsString = Joiner.on(",").join(editsDirs);
 
     Configuration confWithoutShared = new Configuration(conf);
     confWithoutShared.unset(DFSConfigKeys.DFS_NAMENODE_SHARED_EDITS_DIR_KEY);
+    // 设置key "dfs.namenode.edits.dir"
     confWithoutShared.setStrings(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY,
         editsDirsString);
     return confWithoutShared;
@@ -1037,19 +1044,21 @@ public class NameNode implements NameNodeStatusMXBean {
     NNStorage existingStorage = null;
     FSImage sharedEditsImage = null;
     try {
+      // 初始化FSNamesystem和FSImage，getConfigurationWithoutSharedEdits初始化了一个新的Configuration对象，该对象里面没有${dfs.namenode.shared.edits.dir}
       FSNamesystem fsns =
           FSNamesystem.loadFromDisk(getConfigurationWithoutSharedEdits(conf));
       
       existingStorage = fsns.getFSImage().getStorage();
       NamespaceInfo nsInfo = existingStorage.getNamespaceInfo();
-      
+      // 返回${dfs.namenode.shared.edits.dir}配置项的值
       List<URI> sharedEditsDirs = FSNamesystem.getSharedEditsDirs(conf);
       
       sharedEditsImage = new FSImage(conf,
           Lists.<URI>newArrayList(),
           sharedEditsDirs);
+      // 初始化editlog， 执行完是BETWEEN_LOG_SEGMENTS状态
       sharedEditsImage.getEditLog().initJournalsForWrite();
-      
+      // 正常执行返回true
       if (!sharedEditsImage.confirmFormat(force, interactive)) {
         return true; // abort
       }
@@ -1062,7 +1071,7 @@ public class NameNode implements NameNodeStatusMXBean {
       sharedEditsImage.getEditLog().formatNonFileJournals(nsInfo);
 
       // Need to make sure the edit log segments are in good shape to initialize
-      // the shared edits dir.
+      // the shared edits dir. 确定${dfs.namenode.edits.dir"}本地的editlog是好的，用来初始化shared edits dir
       fsns.getFSImage().getEditLog().close();
       fsns.getFSImage().getEditLog().initJournalsForWrite();
       fsns.getFSImage().getEditLog().recoverUnclosedStreams();
@@ -1103,6 +1112,7 @@ public class NameNode implements NameNodeStatusMXBean {
     List<URI> sharedEditsUris = new ArrayList<URI>(sharedEditsDirs);
     FSEditLog newSharedEditLog = new FSEditLog(conf, newSharedStorage,
         sharedEditsUris);
+    // 初始化SharedEditLog
     newSharedEditLog.initJournalsForWrite();
     newSharedEditLog.recoverUnclosedStreams();
     
@@ -1397,9 +1407,10 @@ public class NameNode implements NameNodeStatusMXBean {
     // 正常启动的话执行default中的逻辑
     switch (startOpt) {
       case FORMAT: {
-        // 格式化当前NameNode，调用format()方法执行格式化操作
+        // 格式化当前NameNode，调用format()方法执行格式化操作， 刚开始初始化操作(bin/hdfs namenode -format -clusterid cluster_id)的时候会执行这个逻辑
+        // 初始化操作最终只会在${dfs.namenode.name.dir}/current下创建fsimage_0000000000000000000，fsimage_0000000000000000000.md5，seen_txid， VERSION四个文件，不会创建edits文件.同时seen_txid里面是0
         boolean aborted = format(conf, startOpt.getForceFormat(),
-            startOpt.getInteractiveFormat());
+            startOpt.getInteractiveFormat()); // 正常初始化完，返回false
         terminate(aborted ? 1 : 0);
         return null; // avoid javac warning
       }
@@ -1422,13 +1433,13 @@ public class NameNode implements NameNodeStatusMXBean {
         terminate(aborted ? 1 : 0);
         return null; // avoid warning
       }
-      case BOOTSTRAPSTANDBY: {
+      case BOOTSTRAPSTANDBY: { // hdfs namenode -bootstrapStandby 在备NN上同步主NN的元数据信息
         String toolArgs[] = Arrays.copyOfRange(argv, 1, argv.length);
         int rc = BootstrapStandby.run(toolArgs, conf);
         terminate(rc);
         return null; // avoid warning
       }
-      case INITIALIZESHAREDEDITS: {
+      case INITIALIZESHAREDEDITS: { // 执行hdfs namenode -initializeSharedEdits，该命令将格式化各个 JournalNode, 通常在执行完sbin/hadoop-daemon.sh start journalnode (启动journalNode)之后执行该操作， 执行完initializeSharedEdits之后执行namenode format； start namenode；namenode -bootstrapStandby
         boolean aborted = initializeSharedEdits(conf,
             startOpt.getForceFormat(),
             startOpt.getInteractiveFormat());
@@ -1558,6 +1569,7 @@ public class NameNode implements NameNodeStatusMXBean {
     if (!haEnabled) {
       throw new ServiceFailedException("HA for namenode is not enabled");
     }
+    // 由standby切换到active状态， state是StandbyState
     state.setState(haContext, ACTIVE_STATE);
   }
   
@@ -1583,15 +1595,16 @@ public class NameNode implements NameNodeStatusMXBean {
     HAServiceStatus ret = new HAServiceStatus(retState);
     if (retState == HAServiceState.STANDBY) {
       String safemodeTip = namesystem.getSafeModeTip();
+      // Standby状态，但是处于safeMode状态，则不可以切换为Active状态
       if (!safemodeTip.isEmpty()) {
         ret.setNotReadyToBecomeActive(
             "The NameNode is in safemode. " +
             safemodeTip);
-      } else {
+      } else { // 否则可以随时切换为active状态
         ret.setReadyToBecomeActive();
       }
     } else if (retState == HAServiceState.ACTIVE) {
-      ret.setReadyToBecomeActive();
+      ret.setReadyToBecomeActive(); // 对于active状态的节点可以随时切换为active状态
     } else {
       ret.setNotReadyToBecomeActive("State is " + state);
     }
@@ -1680,7 +1693,7 @@ public class NameNode implements NameNodeStatusMXBean {
     @Override
     public void startActiveServices() throws IOException {
       try {
-        // active namenode会调用namesystem的startActiveServices方法
+        // active namenode会调用FSNamesystem的startActiveServices方法
         namesystem.startActiveServices();
         startTrashEmptier(conf);
       } catch (Throwable t) {
@@ -1692,7 +1705,7 @@ public class NameNode implements NameNodeStatusMXBean {
     public void stopActiveServices() throws IOException {
       try {
         if (namesystem != null) {
-          namesystem.stopActiveServices();
+          namesystem.stopActiveServices(); // 调用stopActiveServices
         }
         stopTrashEmptier();
       } catch (Throwable t) {
@@ -1722,6 +1735,7 @@ public class NameNode implements NameNodeStatusMXBean {
     public void stopStandbyServices() throws IOException {
       try {
         if (namesystem != null) {
+          // 调用stopStandbyServices
           namesystem.stopStandbyServices();
         }
       } catch (Throwable t) {

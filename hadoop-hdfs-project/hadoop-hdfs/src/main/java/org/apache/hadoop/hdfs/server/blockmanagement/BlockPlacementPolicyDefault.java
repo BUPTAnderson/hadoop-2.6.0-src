@@ -123,6 +123,7 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
     try {
       if (favoredNodes == null || favoredNodes.size() == 0) {
         // Favored nodes not specified, fall back to regular block placement.
+          // 没有指定favored nodes
         return chooseTarget(src, numOfReplicas, writer,
             new ArrayList<DatanodeStorageInfo>(numOfReplicas), false, 
             excludedNodes, blocksize, storagePolicy);
@@ -211,6 +212,7 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
 
     boolean avoidStaleNodes = (stats != null
         && stats.isAvoidingStaleDataNodesForWrite());
+    // 继续调用chooseTarget
     final Node localNode = chooseTarget(numOfReplicas, writer, excludedNodes,
         blocksize, maxNodesPerRack, results, avoidStaleNodes, storagePolicy,
         EnumSet.noneOf(StorageType.class), results.isEmpty());
@@ -892,6 +894,7 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
 
     // Pick the node with the oldest heartbeat or with the least free space,
     // if all hearbeats are within the tolerable heartbeat interval
+    // 选择的节点要么是心跳时间最老的或者是可用空间最少的；pickupReplicaSet优先选择的是first
     for(DatanodeStorageInfo storage : pickupReplicaSet(first, second)) {
       if (!excessTypes.contains(storage.getStorageType())) {
         continue;
@@ -900,10 +903,12 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
       final DatanodeDescriptor node = storage.getDatanodeDescriptor();
       long free = node.getRemaining();
       long lastHeartbeat = node.getLastUpdate();
+      // 进行心跳时间的对比
       if(lastHeartbeat < oldestHeartbeat) {
         oldestHeartbeat = lastHeartbeat;
         oldestHeartbeatStorage = storage;
       }
+      // 进行可用空间的对比
       if (minSpace > free) {
         minSpace = free;
         minSpaceStorage = storage;
@@ -911,6 +916,7 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
     }
 
     final DatanodeStorageInfo storage;
+    // 然后进行选择,优先选择心跳时间最老的
     if (oldestHeartbeatStorage != null) {
       storage = oldestHeartbeatStorage;
     } else if (minSpaceStorage != null) {

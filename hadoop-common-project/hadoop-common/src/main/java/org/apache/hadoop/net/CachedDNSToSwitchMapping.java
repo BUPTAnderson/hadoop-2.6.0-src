@@ -112,10 +112,10 @@ public class CachedDNSToSwitchMapping extends AbstractDNSToSwitchMapping {
     if (names.isEmpty()) {
       return result;
     }
-
+    // 确认该IP地址是否已经被缓存， names中没有被缓存的datanode会放到uncachedHosts中返回
     List<String> uncachedHosts = getUncachedHosts(names);
 
-    // Resolve the uncached hosts
+    // Resolve the uncached hosts // rawMapping默认是RawScriptBasedMapping，如果用户指定了映射脚本，则根据脚本进行转换，否则返回默认的网络位置：/default-rack
     List<String> resolvedHosts = rawMapping.resolve(uncachedHosts);
     //cache them
     cacheResolvedHosts(uncachedHosts, resolvedHosts);

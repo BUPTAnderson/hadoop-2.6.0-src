@@ -46,10 +46,11 @@ public class CheckpointConf {
   private final String legacyOivImageDir;
   
   public CheckpointConf(Configuration conf) {
+    // 默认值60
     checkpointCheckPeriod = conf.getLong(
         DFS_NAMENODE_CHECKPOINT_CHECK_PERIOD_KEY,
         DFS_NAMENODE_CHECKPOINT_CHECK_PERIOD_DEFAULT);
-        
+    // 默认值3600
     checkpointPeriod = conf.getLong(DFS_NAMENODE_CHECKPOINT_PERIOD_KEY, 
                                     DFS_NAMENODE_CHECKPOINT_PERIOD_DEFAULT);
     checkpointTxnCount = conf.getLong(DFS_NAMENODE_CHECKPOINT_TXNS_KEY, 

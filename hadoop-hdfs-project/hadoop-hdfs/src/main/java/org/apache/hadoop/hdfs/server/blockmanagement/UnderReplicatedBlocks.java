@@ -82,6 +82,7 @@ class UnderReplicatedBlocks implements Iterable<Block> {
   /** The queue for corrupt blocks: {@value} */
   static final int QUEUE_WITH_CORRUPT_BLOCKS = 4;
   /** the queues themselves */
+  // 优先队列priorityQueues是一个列表，它有5个子队列，每一个队列对应一个优先级列表，其中0为最高优先级，5为最低优先级
   private final List<LightWeightLinkedSet<Block>> priorityQueues
       = new ArrayList<LightWeightLinkedSet<Block>>();
 
@@ -152,26 +153,31 @@ class UnderReplicatedBlocks implements Iterable<Block> {
                           int expectedReplicas) {
     assert curReplicas >= 0 : "Negative replicas!";
     if (curReplicas >= expectedReplicas) {
-      // Block has enough copies, but not enough racks
+      // Block has enough copies, but not enough racks 数据块的副本数量足够，当时没有均匀的分布在不同的机架上，返回优先级3
       return QUEUE_REPLICAS_BADLY_DISTRIBUTED;
     } else if (curReplicas == 0) {
       // If there are zero non-decommissioned replicas but there are
       // some decommissioned replicas, then assign them highest priority
+      // 当前数据块没有有效的副本，并且有些副本所在的Datanode正处于离线中，返回优先级0
       if (decommissionedReplicas > 0) {
         return QUEUE_HIGHEST_PRIORITY;
       }
       //all we have are corrupt blocks
+      // 当前数据块所有的副本都是损坏的，优先级4
       return QUEUE_WITH_CORRUPT_BLOCKS;
     } else if (curReplicas == 1) {
       //only on replica -risk of loss
       // highest priority
+      // 只有一个有效副本，数据块可能随时丢失，优先级0
       return QUEUE_HIGHEST_PRIORITY;
     } else if ((curReplicas * 3) < expectedReplicas) {
       //there is less than a third as many blocks as requested;
       //this is considered very under-replicated
+      // 当前副本数小于期望的副本数的三分之一，返回优先级1
       return QUEUE_VERY_UNDER_REPLICATED;
     } else {
       //add to the normal queue for under replicated blocks
+      // 正常备份状态，优先级2
       return QUEUE_UNDER_REPLICATED;
     }
   }
@@ -188,8 +194,10 @@ class UnderReplicatedBlocks implements Iterable<Block> {
                            int decomissionedReplicas,
                            int expectedReplicas) {
     assert curReplicas >= 0 : "Negative replicas!";
+    // 根据数据块当前有的副本数量、撤销的副本数量以及期望的副本数量，确定这个副本复制的优先级
     int priLevel = getPriority(block, curReplicas, decomissionedReplicas,
                                expectedReplicas);
+    // 加入的指定的优先级队列之中
     if(priLevel != LEVEL && priorityQueues.get(priLevel).add(block)) {
       if(NameNode.blockStateChangeLog.isDebugEnabled()) {
         NameNode.blockStateChangeLog.debug(
@@ -281,7 +289,9 @@ class UnderReplicatedBlocks implements Iterable<Block> {
                            int curReplicasDelta, int expectedReplicasDelta) {
     int oldReplicas = curReplicas-curReplicasDelta;
     int oldExpectedReplicas = curExpectedReplicas-expectedReplicasDelta;
+    // 更新后的优先级
     int curPri = getPriority(block, curReplicas, decommissionedReplicas, curExpectedReplicas);
+    // 原有的优先级
     int oldPri = getPriority(block, oldReplicas, decommissionedReplicas, oldExpectedReplicas);
     if(NameNode.stateChangeLog.isDebugEnabled()) {
       NameNode.stateChangeLog.debug("UnderReplicationBlocks.update " + 
@@ -296,6 +306,7 @@ class UnderReplicatedBlocks implements Iterable<Block> {
     if(oldPri != LEVEL && oldPri != curPri) {
       remove(block, oldPri);
     }
+    // 更新当前副本的优先级队列
     if(curPri != LEVEL && priorityQueues.get(curPri).add(block)) {
       if(NameNode.blockStateChangeLog.isDebugEnabled()) {
         NameNode.blockStateChangeLog.debug(
@@ -324,19 +335,24 @@ class UnderReplicatedBlocks implements Iterable<Block> {
   public synchronized List<List<Block>> chooseUnderReplicatedBlocks(
       int blocksToProcess) {
     // initialize data structure for the return value
+    // 初始化返回值列表，保存从每个优先级队列中取出的数据块
     List<List<Block>> blocksToReplicate = new ArrayList<List<Block>>(LEVEL);
     for (int i = 0; i < LEVEL; i++) {
       blocksToReplicate.add(new ArrayList<Block>());
     }
 
+    // priorityQueues中没有保存任何待复制数据块
     if (size() == 0) { // There are no blocks to collect.
       return blocksToReplicate;
     }
     
     int blockCount = 0;
+    // 遍历priorityQueues中的所有优先级队列
     for (int priority = 0; priority < LEVEL; priority++) { 
       // Go through all blocks that need replications with current priority.
+      // 当前优先级队列保存的带复制数据块的迭代器
       BlockIterator neededReplicationsIterator = iterator(priority);
+      // 获取当前优先级队列的读取偏移量
       Integer replIndex = priorityToReplIdx.get(priority);
       
       // skip to the first unprocessed block, which is at replIndex

@@ -97,6 +97,7 @@ public class ClientContext {
   private ClientContext(String name, Conf conf) {
     this.name = name;
     this.confString = confAsString(conf);
+    // 创建ShortCircuitCache，与短路操作相关
     this.shortCircuitCache = new ShortCircuitCache(
         conf.shortCircuitStreamsCacheSize,
         conf.shortCircuitStreamsCacheExpiryMs,
@@ -148,6 +149,7 @@ public class ClientContext {
     synchronized(ClientContext.class) {
       context = CACHES.get(name);
       if (context == null) {
+        // 创建客户端上下文
         context = new ClientContext(name, conf);
         CACHES.put(name, context);
       } else {

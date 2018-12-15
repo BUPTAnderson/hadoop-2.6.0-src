@@ -118,8 +118,8 @@ public class DataChecksum implements Checksum {
    */
   public static DataChecksum newDataChecksum( DataInputStream in )
                                  throws IOException {
-    int type = in.readByte();
-    int bpc = in.readInt();
+    int type = in.readByte(); // 继续读取一个字节，16进制(02),对应的10进制是2
+    int bpc = in.readInt(); // 继续读取4个字节，16进制(00 0002 00),对应的10进制是512
     DataChecksum summer = newDataChecksum(Type.valueOf(type), bpc );
     if ( summer == null ) {
       throw new IOException( "Could not create DataChecksum of type " +
@@ -223,7 +223,7 @@ public class DataChecksum implements Checksum {
   private DataChecksum( Type type, Checksum checksum, int chunkSize ) {
     this.type = type;
     summer = checksum;
-    bytesPerChecksum = chunkSize;
+    bytesPerChecksum = chunkSize; // 默认crc32，chunkSize为512byte
   }
   
   /** @return the checksum algorithm type. */
