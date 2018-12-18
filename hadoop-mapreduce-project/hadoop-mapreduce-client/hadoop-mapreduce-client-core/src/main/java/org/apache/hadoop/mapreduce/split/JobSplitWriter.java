@@ -75,12 +75,12 @@ public class JobSplitWriter {
       Configuration conf, FileSystem fs, T[] splits) 
   throws IOException, InterruptedException {
     FSDataOutputStream out = createFile(fs, 
-        JobSubmissionFiles.getJobSplitFile(jobSubmitDir), conf);
-    SplitMetaInfo[] info = writeNewSplits(conf, splits, out);
+        JobSubmissionFiles.getJobSplitFile(jobSubmitDir), conf); // 创建split文件(本地文件)，比如：file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001/job.split。并写入头信息，
+    SplitMetaInfo[] info = writeNewSplits(conf, splits, out); // 向out中写入每个分片的信息：分片所在文件名，分片在文件中的起始位置，分片长度
     out.close();
     writeJobSplitMetaInfo(fs,JobSubmissionFiles.getJobSplitMetaFile(jobSubmitDir), 
         new FsPermission(JobSubmissionFiles.JOB_FILE_PERMISSION), splitVersion,
-        info);
+        info); // 将分片的metaInfo信息写入splitmetainfo文件(本地文件，比如file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001/job.splitmetainfo)
   }
   
   public static void createSplitFiles(Path jobSubmitDir, 
@@ -98,17 +98,17 @@ public class JobSplitWriter {
   
   private static FSDataOutputStream createFile(FileSystem fs, Path splitFile, 
       Configuration job)  throws IOException {
-    FSDataOutputStream out = FileSystem.create(fs, splitFile, 
+    FSDataOutputStream out = FileSystem.create(fs, splitFile, // splitFile，比如：file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001/job.split
         new FsPermission(JobSubmissionFiles.JOB_FILE_PERMISSION));
     int replication = job.getInt(Job.SUBMIT_REPLICATION, 10);
     fs.setReplication(splitFile, (short)replication);
-    writeSplitHeader(out);
+    writeSplitHeader(out); // 写入头信息，共7个字节
     return out;
   }
   private static void writeSplitHeader(FSDataOutputStream out) 
   throws IOException {
-    out.write(SPLIT_FILE_HEADER);
-    out.writeInt(splitVersion);
+    out.write(SPLIT_FILE_HEADER); // 写入"SPL"
+    out.writeInt(splitVersion); // 写入1
   }
   
   @SuppressWarnings("unchecked")
@@ -122,15 +122,15 @@ public class JobSplitWriter {
       SerializationFactory factory = new SerializationFactory(conf);
       int i = 0;
       int maxBlockLocations = conf.getInt(MRConfig.MAX_BLOCK_LOCATIONS_KEY,
-          MRConfig.MAX_BLOCK_LOCATIONS_DEFAULT);
+          MRConfig.MAX_BLOCK_LOCATIONS_DEFAULT); // 默认值10
       long offset = out.getPos();
       for(T split: array) {
         long prevCount = out.getPos();
-        Text.writeString(out, split.getClass().getName());
+        Text.writeString(out, split.getClass().getName()); // 写入分片类名，比如FileSplit
         Serializer<T> serializer = 
-          factory.getSerializer((Class<T>) split.getClass());
+          factory.getSerializer((Class<T>) split.getClass()); // FileSplit对应的是WritableSerialization
         serializer.open(out);
-        serializer.serialize(split);
+        serializer.serialize(split); // split为FileSplit的话，会向out中写入文件名，分片在文件中的偏移量即分片的长度
         long currCount = out.getPos();
         String[] locations = split.getLocations();
         if (locations.length > maxBlockLocations) {
@@ -179,18 +179,18 @@ public class JobSplitWriter {
     return info;
   }
 
-  private static void writeJobSplitMetaInfo(FileSystem fs, Path filename, 
+  private static void writeJobSplitMetaInfo(FileSystem fs, Path filename, //filename，比如： file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001/job.splitmetainfo
       FsPermission p, int splitMetaInfoVersion, 
       JobSplit.SplitMetaInfo[] allSplitMetaInfo) 
   throws IOException {
     // write the splits meta-info to a file for the job tracker
     FSDataOutputStream out = 
       FileSystem.create(fs, filename, p);
-    out.write(JobSplit.META_SPLIT_FILE_HEADER);
-    WritableUtils.writeVInt(out, splitMetaInfoVersion);
-    WritableUtils.writeVInt(out, allSplitMetaInfo.length);
+    out.write(JobSplit.META_SPLIT_FILE_HEADER); // 写入头信息："META-SPL"
+    WritableUtils.writeVInt(out, splitMetaInfoVersion); // 写入1
+    WritableUtils.writeVInt(out, allSplitMetaInfo.length); // 写入splitMetaInfo的个数
     for (JobSplit.SplitMetaInfo splitMetaInfo : allSplitMetaInfo) {
-      splitMetaInfo.write(out);
+      splitMetaInfo.write(out); // 写入splitMetaInfo信息：（startOffset：split信息在job.split文件中的起始位置，inputDatLength：分片的长度，locations：split所在的位置）
     }
     out.close();
   }

@@ -564,7 +564,7 @@ abstract public class Task implements Writable, Configurable {
         LOG.debug("using new api for output committer");
       }
       outputFormat =
-        ReflectionUtils.newInstance(taskContext.getOutputFormatClass(), job);
+        ReflectionUtils.newInstance(taskContext.getOutputFormatClass(), job); // 默认TextOutputormat
       committer = outputFormat.getOutputCommitter(taskContext);
     } else {
       committer = conf.getOutputCommitter();

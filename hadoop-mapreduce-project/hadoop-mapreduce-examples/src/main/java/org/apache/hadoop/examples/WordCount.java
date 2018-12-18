@@ -67,6 +67,11 @@ public class WordCount {
 
   public static void main(String[] args) throws Exception {
     Configuration conf = new Configuration();
+    conf.addResource("/Users/momo/software/hadoop-2.6.0/etc/hadoop/hdfs-site.xml");
+    conf.addResource("/Users/momo/software/hadoop-2.6.0/etc/hadoop/core-site.xml");
+    conf.addResource("/Users/momo/software/hadoop-2.6.0/etc/hadoop/mapred-site.xml");
+    conf.set("fs.default.name", "hdfs://localhost:9000");
+    conf.set("mapred.local.dir", "/tmp/mapred");
     String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
     if (otherArgs.length < 2) {
       System.err.println("Usage: wordcount <in> [<in>...] <out>");
@@ -77,10 +82,12 @@ public class WordCount {
     job.setMapperClass(TokenizerMapper.class);
     job.setCombinerClass(IntSumReducer.class);
     job.setReducerClass(IntSumReducer.class);
+    // 设置输出Key和Value的类，这两个类表明了MapReduce作业完毕后的结果。
     // key class
     job.setOutputKeyClass(Text.class);
     // value class
     job.setOutputValueClass(IntWritable.class);
+    // 设置了要计算的文件在HDFS中的路径
     for (int i = 0; i < otherArgs.length - 1; ++i) {
       FileInputFormat.addInputPath(job, new Path(otherArgs[i]));
     }

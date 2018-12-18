@@ -63,7 +63,7 @@ public class JobID extends org.apache.hadoop.mapreduce.JobID {
   public static JobID downgrade(org.apache.hadoop.mapreduce.JobID old) {
     if (old instanceof JobID) {
       return (JobID) old;
-    } else {
+    } else { // 执行else中逻辑
       return new JobID(old.getJtIdentifier(), old.getId());
     }
   }

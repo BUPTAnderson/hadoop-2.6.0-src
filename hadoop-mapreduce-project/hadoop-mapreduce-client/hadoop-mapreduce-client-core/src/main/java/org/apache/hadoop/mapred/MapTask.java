@@ -355,10 +355,10 @@ public class MapTask extends Task {
    FileSystem fs = file.getFileSystem(conf);
    FSDataInputStream inFile = fs.open(file);
    inFile.seek(offset);
-   String className = StringInterner.weakIntern(Text.readString(inFile));
+   String className = StringInterner.weakIntern(Text.readString(inFile)); // className： org.apache.hadoop.mapreduce.lib.input.FileSplit
    Class<T> cls;
    try {
-     cls = (Class<T>) conf.getClassByName(className);
+     cls = (Class<T>) conf.getClassByName(className); // cls：class org.apache.hadoop.mapreduce.lib.input.FileSplit
    } catch (ClassNotFoundException ce) {
      IOException wrap = new IOException("Split class " + className + 
                                          " not found");
@@ -397,8 +397,8 @@ public class MapTask extends Task {
           clazz.asSubclass(MapOutputCollector.class);
         LOG.debug("Trying map output collector class: " + subclazz.getName());
         MapOutputCollector<KEY, VALUE> collector =
-          ReflectionUtils.newInstance(subclazz, job);
-        collector.init(context);
+          ReflectionUtils.newInstance(subclazz, job); // 通过反射获取MapOutputBuffer对象
+        collector.init(context); // 调用MapOutputBuffer对象的初始化方法
         LOG.info("Map output collector class = " + collector.getClass().getName());
         return collector;
       } catch (Exception e) {
@@ -692,7 +692,7 @@ public class MapTask extends Task {
                        TaskUmbilicalProtocol umbilical,
                        TaskReporter reporter
                        ) throws IOException, ClassNotFoundException {
-      collector = createSortingCollector(job, reporter);
+      collector = createSortingCollector(job, reporter); // 继续执行
       partitions = jobContext.getNumReduceTasks();
       if (partitions > 1) {
         partitioner = (org.apache.hadoop.mapreduce.Partitioner<K,V>)
@@ -739,20 +739,20 @@ public class MapTask extends Task {
       new org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl(job, 
                                                                   getTaskID(),
                                                                   reporter);
-    // make a mapper
+    // make a mapper， 这里是根据反射创建我们设置的mapper类对象，比如对应wordcount，这里的mapper是TokenizerMapper对象
     org.apache.hadoop.mapreduce.Mapper<INKEY,INVALUE,OUTKEY,OUTVALUE> mapper =
       (org.apache.hadoop.mapreduce.Mapper<INKEY,INVALUE,OUTKEY,OUTVALUE>)
         ReflectionUtils.newInstance(taskContext.getMapperClass(), job);
     // make the input format
     org.apache.hadoop.mapreduce.InputFormat<INKEY,INVALUE> inputFormat =
       (org.apache.hadoop.mapreduce.InputFormat<INKEY,INVALUE>)
-        ReflectionUtils.newInstance(taskContext.getInputFormatClass(), job);
+        ReflectionUtils.newInstance(taskContext.getInputFormatClass(), job); // taskContext实际是TaskAttemptContextImpl对象，调用的是父类JobContextImpl的对应方法，获取配置项mapreduce.job.inputformat.class的值，没有配置的话返回默认值TextInputFormat，这里返回的是默认值
     // rebuild the input split
     org.apache.hadoop.mapreduce.InputSplit split = null;
-    split = getSplitDetails(new Path(splitIndex.getSplitLocation()),
-        splitIndex.getStartOffset());
+    split = getSplitDetails(new Path(splitIndex.getSplitLocation()), // 得到当前map对应的split，split是在JobSubmitter.submitJobInternal中调用writeSplits得到的，有多少个split就对应多少个map。
+        splitIndex.getStartOffset()); // splitLocation比如：hdfs://localhost:9000/tmp/hadoop-yarn/staging/momo/.staging/job_1545016777582_0009/job.split， startOffset比如：7
     LOG.info("Processing split: " + split);
-
+    // 得到RecordReader对象，用于读取split中的文本，使其变为key value的格式
     org.apache.hadoop.mapreduce.RecordReader<INKEY,INVALUE> input =
       new NewTrackingRecordReader<INKEY,INVALUE>
         (split, inputFormat, reporter, taskContext);
@@ -763,9 +763,9 @@ public class MapTask extends Task {
     // get an output object
     if (job.getNumReduceTasks() == 0) {
       output = 
-        new NewDirectOutputCollector(taskContext, job, umbilical, reporter);
+        new NewDirectOutputCollector(taskContext, job, umbilical, reporter); // 没有reduce时，直接输出
     } else {
-      output = new NewOutputCollector(taskContext, job, umbilical, reporter);
+      output = new NewOutputCollector(taskContext, job, umbilical, reporter); // 继续执行
     }
 
     org.apache.hadoop.mapreduce.MapContext<INKEY, INVALUE, OUTKEY, OUTVALUE> 
@@ -780,11 +780,11 @@ public class MapTask extends Task {
           new WrappedMapper<INKEY, INVALUE, OUTKEY, OUTVALUE>().getMapContext(
               mapContext);
 
-    try {
+    try { // 读取分片
       input.initialize(split, mapperContext);
-      mapper.run(mapperContext);
+      mapper.run(mapperContext); // 调用用户继承的Mapper类中的方法   也就是用户编写的map阶段
       mapPhase.complete();
-      setPhase(TaskStatus.Phase.SORT);
+      setPhase(TaskStatus.Phase.SORT); // SORT阶段，在此阶段进行merge 临时文件
       statusUpdate(umbilical);
       input.close();
       input = null;
@@ -909,8 +909,8 @@ public class MapTask extends Task {
     private static final int KEYSTART = 1;         // key offset in acct
     private static final int PARTITION = 2;        // partition offset in acct
     private static final int VALLEN = 3;           // length of value
-    private static final int NMETA = 4;            // num meta ints
-    private static final int METASIZE = NMETA * 4; // size in bytes
+    private static final int NMETA = 4;            // num meta ints 每个元数据包含4个int数值
+    private static final int METASIZE = NMETA * 4; // size in bytes 每条元数据的大小byte
 
     // spill accounting
     private int maxRec;
@@ -995,12 +995,12 @@ public class MapTask extends Task {
       bufstart = bufend = bufindex = equator; // bufstart = bufend = bufindex = equator = 0
       kvstart = kvend = kvindex; // kvindex在setEquator中已经计算出来了，kvstart 、kvend、kvindex都是按逆时针偏移了16个字节（metasize=16个字节），因为一个meta data占用16个字节（4个整数，分别存储keystart,valuestart,partion,valuelen），所以需要逆时针偏移16个字节来标记第一个存储的metadata的起始位置。
 
-      // 计算kvmeta能存储的最大数量,记录数
+      // 计算kvmeta能存储的最大数量,记录数，kvmeta.capacity()是100MB总共可以表示多少个int数值，而NMETA是说一条索引信息包含4个int数值
       maxRec = kvmeta.capacity() / NMETA; // 因为kvmeta是IntBuffer，所以kvmeta.capacity() = 100 * 1024 * 1024 / 4 = 25*1024*1024; maxRec = 25*1024*1024/4
       // 设置softlimit为缓存的80%
       softLimit = (int)(kvbuffer.length * spillper); // 100 * 1024 * 1024 * 0.8
       // 设置bufferRemaining为softlimit
-      bufferRemaining = softLimit; // buffer剩余空间，字节为单位, 默认80MB
+      bufferRemaining = softLimit; // buffer剩余空间，单位为字节, 默认80MB
       LOG.info(JobContext.IO_SORT_MB + ": " + sortmb);
       LOG.info("soft limit at " + softLimit);
       LOG.info("bufstart = " + bufstart + "; bufvoid = " + bufvoid);
@@ -1008,8 +1008,8 @@ public class MapTask extends Task {
 
       // k/v serialization 生成keySerializer，valueSerializer
       comparator = job.getOutputKeyComparator();
-      keyClass = (Class<K>)job.getMapOutputKeyClass(); // 比如Text.class
-      valClass = (Class<V>)job.getMapOutputValueClass(); // 比如IntWritable.class
+      keyClass = (Class<K>)job.getMapOutputKeyClass(); // 比如Text.class, 默认值org.apache.hadoop.io.Text
+      valClass = (Class<V>)job.getMapOutputValueClass(); // 比如IntWritable.class, 默认值为：org.apache.hadoop.io.IntWritable
       serializationFactory = new SerializationFactory(job);
       keySerializer = serializationFactory.getSerializer(keyClass); // 比如Text.class，IntWritable.class对应的就是WritableSerializer
       keySerializer.open(bb);
@@ -1162,9 +1162,9 @@ public class MapTask extends Task {
           spillLock.unlock();
         }
       }
-
+      // 写入数据
       try {
-        // serialize key bytes into buffer 序列化key到buffer中
+        // serialize key bytes into buffer 序列化key到buffer中，首先获取key写入的位置，bufindex为下一个要写入的kv的起始位置，bufindex初始值为0
         int keystart = bufindex;
         // 比如wordcount中，keySerializer是WritableSerialization,写入一个Text对象，封装了BlockingBuffer，BlockingBuffer内又封装了Buffer，实际最终调用的是Buffer重写的两个write方法
         // 该方法会将key以字节的形式写入kvbuffer，同时bufferRemaining -= len，bufindex += len；其中len是写入的key对应的字节数组的长度
@@ -1200,11 +1200,11 @@ public class MapTask extends Task {
             distanceTo(keystart, valend, bufvoid));
 
         // write accounting info 写入kvmeta信息，kvmeta是一个IntBuffer，kvindex初始值是kvbuffer从0向后移动16字节(即4个int)
-        kvmeta.put(kvindex + PARTITION, partition);
-        kvmeta.put(kvindex + KEYSTART, keystart);
-        kvmeta.put(kvindex + VALSTART, valstart);
-        kvmeta.put(kvindex + VALLEN, distanceTo(valstart, valend));
-        // advance kvindex //偏移kvindex，即从原来的位置在往前移动4个int(4字节)的距离
+        kvmeta.put(kvindex + PARTITION, partition); // 记录下分区值
+        kvmeta.put(kvindex + KEYSTART, keystart); // 记录下key的起始位置
+        kvmeta.put(kvindex + VALSTART, valstart); // 记录下value的起始位置
+        kvmeta.put(kvindex + VALLEN, distanceTo(valstart, valend)); // 记录下value的长度
+        // advance kvindex //偏移kvindex，即从原来的位置在往前移动4个int(4字节)的距离，即由原来的位置减去4个int(实际是16字节)
         kvindex = (kvindex - NMETA + kvmeta.capacity()) % kvmeta.capacity();
       } catch (MapBufferTooSmallException e) {
         LOG.info("Record too large for in-memory buffer: " + e.getMessage());
@@ -1543,7 +1543,7 @@ public class MapTask extends Task {
     }
 
     public void close() { }
-
+    // Spill溢写线程
     protected class SpillThread extends Thread {
 
       @Override

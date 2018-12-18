@@ -59,11 +59,11 @@ public class SplitMetaInfoReader {
     if (!Arrays.equals(JobSplit.META_SPLIT_FILE_HEADER, header)) {
       throw new IOException("Invalid header on split file");
     }
-    int vers = WritableUtils.readVInt(in);
+    int vers = WritableUtils.readVInt(in); // 读取一个整数，即版本信息
     if (vers != JobSplit.META_SPLIT_VERSION) {
       in.close();
       throw new IOException("Unsupported split version " + vers);
-    }
+    } // 读取splitMetaInfo的个数
     int numSplits = WritableUtils.readVInt(in); //TODO: check for insane values
     JobSplit.TaskSplitMetaInfo[] allSplitMetaInfo = 
       new JobSplit.TaskSplitMetaInfo[numSplits];

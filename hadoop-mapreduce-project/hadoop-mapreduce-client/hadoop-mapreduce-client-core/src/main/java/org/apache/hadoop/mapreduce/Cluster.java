@@ -125,7 +125,7 @@ public class Cluster {
   }
 
   ClientProtocol getClient() {
-    return client;
+    return client; // LocalJobRunner对象
   }
   
   Configuration getConf() {

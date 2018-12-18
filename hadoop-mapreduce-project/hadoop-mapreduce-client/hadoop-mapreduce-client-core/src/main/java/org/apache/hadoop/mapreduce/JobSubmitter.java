@@ -432,27 +432,27 @@ class JobSubmitter {
     checkSpecs(job);
 
     Configuration conf = job.getConfiguration();
-    addMRFrameworkToDistributedCache(conf);
+    addMRFrameworkToDistributedCache(conf); // 添加到分布式缓存
 
-    Path jobStagingArea = JobSubmissionFiles.getStagingDir(cluster, conf);
+    Path jobStagingArea = JobSubmissionFiles.getStagingDir(cluster, conf); // 例如：file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging
     //configure the command line options correctly on the submitting dfs
     InetAddress ip = InetAddress.getLocalHost();
-    if (ip != null) {
+    if (ip != null) { // 设置提交job的ip和host
       submitHostAddress = ip.getHostAddress();
       submitHostName = ip.getHostName();
       conf.set(MRJobConfig.JOB_SUBMITHOST,submitHostName);
       conf.set(MRJobConfig.JOB_SUBMITHOSTADDR,submitHostAddress);
     }
-    JobID jobId = submitClient.getNewJobID();
+    JobID jobId = submitClient.getNewJobID(); // 获取行的jobid，比如：job_local1348790352_0001
     job.setJobID(jobId);
-    Path submitJobDir = new Path(jobStagingArea, jobId.toString());
+    Path submitJobDir = new Path(jobStagingArea, jobId.toString()); // 比如：file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001
     JobStatus status = null;
     try {
       conf.set(MRJobConfig.USER_NAME,
-          UserGroupInformation.getCurrentUser().getShortUserName());
+          UserGroupInformation.getCurrentUser().getShortUserName()); // 设置提交作业的用户名
       conf.set("hadoop.http.filter.initializers", 
           "org.apache.hadoop.yarn.server.webproxy.amfilter.AmFilterInitializer");
-      conf.set(MRJobConfig.MAPREDUCE_JOB_DIR, submitJobDir.toString());
+      conf.set(MRJobConfig.MAPREDUCE_JOB_DIR, submitJobDir.toString()); // 设置"mapreduce.job.dir";
       LOG.debug("Configuring job " + jobId + " with " + submitJobDir 
           + " as the submit dir");
       // get delegation token for the dir
@@ -469,8 +469,8 @@ class JobSubmitter {
           int keyLen = CryptoUtils.isShuffleEncrypted(conf) 
               ? conf.getInt(MRJobConfig.MR_ENCRYPTED_INTERMEDIATE_DATA_KEY_SIZE_BITS, 
                   MRJobConfig.DEFAULT_MR_ENCRYPTED_INTERMEDIATE_DATA_KEY_SIZE_BITS)
-              : SHUFFLE_KEY_LENGTH;
-          keyGen = KeyGenerator.getInstance(SHUFFLE_KEYGEN_ALGORITHM);
+              : SHUFFLE_KEY_LENGTH; // 64
+          keyGen = KeyGenerator.getInstance(SHUFFLE_KEYGEN_ALGORITHM); // HmacSHA1算法
           keyGen.init(keyLen);
         } catch (NoSuchAlgorithmException e) {
           throw new IOException("Error generating shuffle secret key", e);
@@ -485,21 +485,21 @@ class JobSubmitter {
       
 
       
-      Path submitJobFile = JobSubmissionFiles.getJobConfPath(submitJobDir);
+      Path submitJobFile = JobSubmissionFiles.getJobConfPath(submitJobDir); // 比如：file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001/job.xml,注意此时还没有创建job.xml文件
       
       // Create the splits for the job
       LOG.debug("Creating splits at " + jtFs.makeQualified(submitJobDir));
-      int maps = writeSplits(job, submitJobDir);
+      int maps = writeSplits(job, submitJobDir); // 关键步骤，分片，写分片信息到本地文件，获取maps的个数，即分片的个数
       conf.setInt(MRJobConfig.NUM_MAPS, maps);
       LOG.info("number of splits:" + maps);
 
       // write "queue admins of the queue to which job is being submitted"
       // to job file.
       String queue = conf.get(MRJobConfig.QUEUE_NAME,
-          JobConf.DEFAULT_QUEUE_NAME);
+          JobConf.DEFAULT_QUEUE_NAME); // 获取job提交的队列名，默认是default
       AccessControlList acl = submitClient.getQueueAdmins(queue);
       conf.set(toFullPropertyName(queue,
-          QueueACL.ADMINISTER_JOBS.getAclName()), acl.getAclString());
+          QueueACL.ADMINISTER_JOBS.getAclName()), acl.getAclString()); // key：mapred.queue.default.acl-administer-jobs， value：""
 
       // removing jobtoken referrals before copying the jobconf to HDFS
       // as the tasks don't need this setting, actually they may break
@@ -509,7 +509,7 @@ class JobSubmitter {
 
       if (conf.getBoolean(
           MRJobConfig.JOB_TOKEN_TRACKING_IDS_ENABLED,
-          MRJobConfig.DEFAULT_JOB_TOKEN_TRACKING_IDS_ENABLED)) {
+          MRJobConfig.DEFAULT_JOB_TOKEN_TRACKING_IDS_ENABLED)) { // 默认值为false
         // Add HDFS tracking ids
         ArrayList<String> trackingIds = new ArrayList<String>();
         for (Token<? extends TokenIdentifier> t :
@@ -521,19 +521,19 @@ class JobSubmitter {
       }
 
       // Set reservation info if it exists
-      ReservationId reservationId = job.getReservationId();
+      ReservationId reservationId = job.getReservationId(); // 默认为null
       if (reservationId != null) {
         conf.set(MRJobConfig.RESERVATION_ID, reservationId.toString());
       }
 
       // Write job file to submit dir
-      writeConf(conf, submitJobFile);
+      writeConf(conf, submitJobFile); // 将conf信息写入job.xml
       
       //
       // Now, actually submit the job (using the submit name)
       //
       printTokens(jobId, job.getCredentials());
-      status = submitClient.submitJob(
+      status = submitClient.submitJob( // 提交作业
           jobId, submitJobDir.toString(), job.getCredentials());
       if (status != null) {
         return status;
@@ -556,10 +556,10 @@ class JobSubmitter {
     // Check the output specification
     if (jConf.getNumReduceTasks() == 0 ? 
         jConf.getUseNewMapper() : jConf.getUseNewReducer()) {
-      org.apache.hadoop.mapreduce.OutputFormat<?, ?> output =
+      org.apache.hadoop.mapreduce.OutputFormat<?, ?> output = // 默认值为TextOutputFormat
         ReflectionUtils.newInstance(job.getOutputFormatClass(),
           job.getConfiguration());
-      output.checkOutputSpecs(job);
+      output.checkOutputSpecs(job); // 确认输出目录不存在
     } else {
       jConf.getOutputFormat().checkOutputSpecs(jtFs, jConf);
     }
@@ -569,7 +569,7 @@ class JobSubmitter {
       throws IOException {
     // Write job file to JobTracker's fs        
     FSDataOutputStream out = 
-      FileSystem.create(jtFs, jobFile, 
+      FileSystem.create(jtFs, jobFile, // jtFs为LocalFileSystem
                         new FsPermission(JobSubmissionFiles.JOB_FILE_PERMISSION));
     try {
       conf.writeXml(out);
@@ -592,16 +592,16 @@ class JobSubmitter {
       InterruptedException, ClassNotFoundException {
     Configuration conf = job.getConfiguration();
     InputFormat<?, ?> input =
-      ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
+      ReflectionUtils.newInstance(job.getInputFormatClass(), conf); // 没有设置的话，默认返回TextInputFormat.class
 
-    List<InputSplit> splits = input.getSplits(job);
-    T[] array = (T[]) splits.toArray(new InputSplit[splits.size()]);
+    List<InputSplit> splits = input.getSplits(job); // 调用TextInputFormat的方法，实际调用的是其父类FileInputFormat的方法
+    T[] array = (T[]) splits.toArray(new InputSplit[splits.size()]); // 把分片list转换为数组
 
     // sort the splits into order based on size, so that the biggest
     // go first
-    Arrays.sort(array, new SplitComparator());
+    Arrays.sort(array, new SplitComparator()); // 按照分片的大小进行排序，大的在前
     JobSplitWriter.createSplitFiles(jobSubmitDir, conf, 
-        jobSubmitDir.getFileSystem(conf), array);
+        jobSubmitDir.getFileSystem(conf), array); // 创建本地文件job.split和job.splitmetainfo，并写入分片相关信息。比如：/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001/job.split /tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001/job.splitmetainfo
     return array.length;
   }
   

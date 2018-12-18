@@ -27,7 +27,7 @@ import static org.mockito.Mockito.*;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import static org.apache.hadoop.metrics2.impl.SinkQueue.*;
+import static org.apache.hadoop.metrics2.impl.SinkQueue.Consumer;
 
 /**
  * Test the half-blocking metrics sink queue
@@ -47,7 +47,7 @@ public class TestSinkQueue {
     assertEquals("element", 1, (int) q.dequeue());
 
     assertTrue("should enqueue", q.enqueue(2));
-    q.consume(new Consumer<Integer>() {
+    q.consume(new SinkQueue.Consumer<Integer>() {
       @Override public void consume(Integer e) {
         assertEquals("element", 2, (int) e);
       }
@@ -76,7 +76,7 @@ public class TestSinkQueue {
       @Override public void run() {
         try {
           assertEquals("element", 1, (int) q.dequeue());
-          q.consume(new Consumer<Integer>() {
+          q.consume(new SinkQueue.Consumer<Integer>() {
             @Override public void consume(Integer e) {
               assertEquals("element", 2, (int) e);
               trigger.run();
@@ -111,7 +111,7 @@ public class TestSinkQueue {
     assertEquals("element", 1, (int) q.dequeue());
 
     q.enqueue(3);
-    q.consume(new Consumer<Integer>() {
+    q.consume(new SinkQueue.Consumer<Integer>() {
       @Override public void consume(Integer e) {
         assertEquals("element", 3, (int) e);
       }
@@ -133,7 +133,7 @@ public class TestSinkQueue {
     assertTrue("should not enqueue", !q.enqueue(capacity));
 
     final Runnable trigger = mock(Runnable.class);
-    q.consumeAll(new Consumer<Integer>() {
+    q.consumeAll(new SinkQueue.Consumer<Integer>() {
       private int expected = 0;
       @Override public void consume(Integer e) {
         assertEquals("element", expected++, (int) e);
@@ -154,7 +154,7 @@ public class TestSinkQueue {
     q.enqueue(1);
 
     try {
-      q.consume(new Consumer<Integer>() {
+      q.consume(new SinkQueue.Consumer<Integer>() {
         @Override public void consume(Integer e) {
           throw ex;
         }
@@ -252,7 +252,7 @@ public class TestSinkQueue {
       @Override public void run() {
         try {
           Thread.sleep(10); // causes failure without barrier
-          q.consume(new Consumer<Integer>() {
+          q.consume(new SinkQueue.Consumer<Integer>() {
             @Override
             public void consume(Integer e) throws InterruptedException {
               LOG.info("sleeping");

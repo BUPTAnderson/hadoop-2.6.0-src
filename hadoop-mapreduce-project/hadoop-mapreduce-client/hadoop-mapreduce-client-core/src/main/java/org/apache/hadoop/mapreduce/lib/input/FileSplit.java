@@ -105,9 +105,9 @@ public class FileSplit extends InputSplit implements Writable {
 
   @Override
   public void write(DataOutput out) throws IOException {
-    Text.writeString(out, file.toString());
-    out.writeLong(start);
-    out.writeLong(length);
+    Text.writeString(out, file.toString()); // 写入文件名
+    out.writeLong(start); // 写入分片在file中的起始位置
+    out.writeLong(length); // 写入分片长度
   }
 
   @Override

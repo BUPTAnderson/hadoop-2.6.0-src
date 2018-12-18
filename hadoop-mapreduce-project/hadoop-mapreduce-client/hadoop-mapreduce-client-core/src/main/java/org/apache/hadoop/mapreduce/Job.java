@@ -1216,17 +1216,17 @@ public class Job extends JobContextImpl implements JobContext {
    * @throws IOException if the configuration is inconsistant
    */
   private void setUseNewAPI() throws IOException {
-    int numReduces = conf.getNumReduceTasks();
+    int numReduces = conf.getNumReduceTasks(); // 默认值为1
     String oldMapperClass = "mapred.mapper.class";
     String oldReduceClass = "mapred.reducer.class";
     conf.setBooleanIfUnset("mapred.mapper.new-api",
-                           conf.get(oldMapperClass) == null);
-    if (conf.getUseNewMapper()) {
+                           conf.get(oldMapperClass) == null); // 没有设置"mapred.mapper.class";则认为时是使用新的api
+    if (conf.getUseNewMapper()) { // 上面已经设置"mapred.mapper.new-api"为true了，这里执行if中的逻辑
       String mode = "new map API";
-      ensureNotSet("mapred.input.format.class", mode);
-      ensureNotSet(oldMapperClass, mode);
+      ensureNotSet("mapred.input.format.class", mode); // 确认没有设置"mapred.input.format.class"
+      ensureNotSet(oldMapperClass, mode); // 确认没有设置"mapred.mapper.class"
       if (numReduces != 0) {
-        ensureNotSet("mapred.partitioner.class", mode);
+        ensureNotSet("mapred.partitioner.class", mode); // 确认没有设置
        } else {
         ensureNotSet("mapred.output.format.class", mode);
       }      
@@ -1242,7 +1242,7 @@ public class Job extends JobContextImpl implements JobContext {
     }
     if (numReduces != 0) {
       conf.setBooleanIfUnset("mapred.reducer.new-api",
-                             conf.get(oldReduceClass) == null);
+                             conf.get(oldReduceClass) == null); // 上面设置了mapper.new-api,这里设置reduce.new-api
       if (conf.getUseNewReducer()) {
         String mode = "new reduce API";
         ensureNotSet("mapred.output.format.class", mode);

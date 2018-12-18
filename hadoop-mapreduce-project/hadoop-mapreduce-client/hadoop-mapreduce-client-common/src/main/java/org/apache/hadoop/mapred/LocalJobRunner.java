@@ -147,15 +147,15 @@ public class LocalJobRunner implements ClientProtocol {
     }
 
     public Job(JobID jobid, String jobSubmitDir) throws IOException {
-      this.systemJobDir = new Path(jobSubmitDir);
-      this.systemJobFile = new Path(systemJobDir, "job.xml");
-      this.id = jobid;
+      this.systemJobDir = new Path(jobSubmitDir); // 比如：file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001
+      this.systemJobFile = new Path(systemJobDir, "job.xml"); // 比如：file:/tmp/hadoop-momo/mapred/staging/momo1348790352/.staging/job_local1348790352_0001/job.xml
+      this.id = jobid; // 比如：job_local1348790352_0001
       JobConf conf = new JobConf(systemJobFile);
       this.localFs = FileSystem.getLocal(conf);
-      String user = UserGroupInformation.getCurrentUser().getShortUserName();
+      String user = UserGroupInformation.getCurrentUser().getShortUserName(); // 比如：momo
       this.localJobDir = localFs.makeQualified(new Path(
-          new Path(conf.getLocalPath(jobDir), user), jobid.toString()));
-      this.localJobFile = new Path(this.localJobDir, id + ".xml");
+          new Path(conf.getLocalPath(jobDir), user), jobid.toString())); // 比如：file:/tmp/mapred/localRunner/momo/job_local1348790352_0001
+      this.localJobFile = new Path(this.localJobDir, id + ".xml"); // 比如：file:/tmp/mapred/localRunner/momo/job_local1348790352_0001/job_local1348790352_0001.xml
 
       // Manage the distributed cache.  If there are files to be copied,
       // this will trigger localFile to be re-written again.
@@ -174,7 +174,7 @@ public class LocalJobRunner implements ClientProtocol {
       this.job = new JobConf(localJobFile);
 
       // Job (the current object) is a Thread, so we wrap its class loader.
-      if (localDistributedCacheManager.hasLocalClasspaths()) {
+      if (localDistributedCacheManager.hasLocalClasspaths()) { // 默认false
         setContextClassLoader(localDistributedCacheManager.makeClassLoader(
                 getContextClassLoader()));
       }
@@ -222,7 +222,7 @@ public class LocalJobRunner implements ClientProtocol {
           TaskAttemptID mapId = new TaskAttemptID(new TaskID(
               jobId, TaskType.MAP, taskId), 0);
           LOG.info("Starting task: " + mapId);
-          mapIds.add(mapId);
+          mapIds.add(mapId); // 将当前task的TaskAttemptID添加到Job维护的mapIds中
           MapTask map = new MapTask(systemJobFile.toString(), mapId, taskId,
             info.getSplitIndex(), 1);
           map.setUser(UserGroupInformation.getCurrentUser().
@@ -505,7 +505,7 @@ public class LocalJobRunner implements ClientProtocol {
       
       try {
         TaskSplitMetaInfo[] taskSplitMetaInfos = 
-          SplitMetaInfoReader.readSplitMetaInfo(jobId, localFs, conf, systemJobDir);
+          SplitMetaInfoReader.readSplitMetaInfo(jobId, localFs, conf, systemJobDir); // 通过读取job.splitmetainfo文件获取分片的元信息
 
         int numReduceTasks = job.getNumReduceTasks();
         outputCommitter.setupJob(jContext);
@@ -518,19 +518,19 @@ public class LocalJobRunner implements ClientProtocol {
             taskSplitMetaInfos, jobId, mapOutputFiles);
               
         initCounters(mapRunnables.size(), numReduceTasks);
-        ExecutorService mapService = createMapExecutor();
+        ExecutorService mapService = createMapExecutor(); // 构造线程池
         runTasks(mapRunnables, mapService, "map");
 
         try {
           if (numReduceTasks > 0) {
             List<RunnableWithThrowable> reduceRunnables = getReduceTaskRunnables(
                 jobId, mapOutputFiles);
-            ExecutorService reduceService = createReduceExecutor();
+            ExecutorService reduceService = createReduceExecutor(); // 创建构造reduce task的线程池
             runTasks(reduceRunnables, reduceService, "reduce");
           }
         } finally {
           for (MapOutputFile output : mapOutputFiles.values()) {
-            output.removeAll();
+            output.removeAll(); // 删除map task产生的中间文件
           }
         }
         // delete the temporary directory in output directory
