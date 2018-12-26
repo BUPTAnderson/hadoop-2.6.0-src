@@ -554,22 +554,22 @@ abstract public class Task implements Writable, Configurable {
                          boolean useNewApi) throws IOException, 
                                                    ClassNotFoundException,
                                                    InterruptedException {
-    jobContext = new JobContextImpl(job, id, reporter);
-    taskContext = new TaskAttemptContextImpl(job, taskId, reporter);
-    if (getState() == TaskStatus.State.UNASSIGNED) {
+    jobContext = new JobContextImpl(job, id, reporter); // 根据JobConf job与JobID id，以及TaskReporter，创建一个JobContext对象
+    taskContext = new TaskAttemptContextImpl(job, taskId, reporter); // 创建一个TaskAttemptContext对象
+    if (getState() == TaskStatus.State.UNASSIGNED) { // 如果Task状态为TaskStatus.State.UNASSIGNED，修改为TaskStatus.State.RUNNING
       setState(TaskStatus.State.RUNNING);
-    }
+    } // 根据JobConf创建OutputFormat，以及OutputCommitter
     if (useNewApi) {
       if (LOG.isDebugEnabled()) {
         LOG.debug("using new api for output committer");
       }
       outputFormat =
         ReflectionUtils.newInstance(taskContext.getOutputFormatClass(), job); // 默认TextOutputormat
-      committer = outputFormat.getOutputCommitter(taskContext);
+      committer = outputFormat.getOutputCommitter(taskContext); // 默认FileOutputCommitter
     } else {
       committer = conf.getOutputCommitter();
     }
-    Path outputPath = FileOutputFormat.getOutputPath(conf);
+    Path outputPath = FileOutputFormat.getOutputPath(conf); // 从conf中获取输出路径，比如wordcount中设置为/tmp/output，则这里outputPath为：hdfs://localhost:9000/tmp/output
     if (outputPath != null) {
       if ((committer instanceof FileOutputCommitter)) {
         FileOutputFormat.setWorkOutputPath(conf, 

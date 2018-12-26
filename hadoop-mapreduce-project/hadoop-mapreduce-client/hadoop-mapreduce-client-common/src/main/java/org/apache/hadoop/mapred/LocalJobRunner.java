@@ -240,7 +240,7 @@ public class LocalJobRunner implements ClientProtocol {
           try {
             map_tasks.getAndIncrement();
             myMetrics.launchMap(mapId);
-            map.run(localConf, Job.this);
+            map.run(localConf, Job.this); // 调用MapTask的run方法，启动map task
             myMetrics.completeMap(mapId);
           } finally {
             map_tasks.getAndDecrement();

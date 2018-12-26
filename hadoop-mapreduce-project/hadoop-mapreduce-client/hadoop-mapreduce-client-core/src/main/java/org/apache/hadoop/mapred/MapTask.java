@@ -302,7 +302,7 @@ public class MapTask extends Task {
   }
 
   @Override
-  public void run(final JobConf job, final TaskUmbilicalProtocol umbilical)
+  public void run(final JobConf job, final TaskUmbilicalProtocol umbilical) // umbilical表示一个RPC代理对象，通过该对象可以与进行通信
     throws IOException, ClassNotFoundException, InterruptedException {
     this.umbilical = umbilical;
 
@@ -318,21 +318,21 @@ public class MapTask extends Task {
         sortPhase  = getProgress().addPhase("sort", 0.333f);
       }
     }
-    TaskReporter reporter = startReporter(umbilical);
+    TaskReporter reporter = startReporter(umbilical); // 创建TaskReporter线程对象
  
     boolean useNewApi = job.getUseNewMapper();
     initialize(job, getJobID(), reporter, useNewApi);
 
-    // check if it is a cleanupJobTask
+    // check if it is a cleanupJobTask 执行JobCleanupTask，主要是清理Job运行过程中产生的数据，因为该Task可能上次运行过一次，但是失败，为了下一次重新运行，需要将之前失败Task的数据清理掉。即使Job运行成功，也需要清理MapTask执行后输出的中间结果数据
     if (jobCleanup) {
       runJobCleanupTask(umbilical, reporter);
       return;
     }
-    if (jobSetup) {
+    if (jobSetup) { // 运行JobSetupTask，主要是初始化Job对应的临时目录，为后续运行Task做准备，具体处理流程
       runJobSetupTask(umbilical, reporter);
       return;
     }
-    if (taskCleanup) {
+    if (taskCleanup) { // TaskCleanupTask与JobCleanupTask类似，主要是清理Task运行过程中产生的一些临时目录和文件
       runTaskCleanupTask(umbilical, reporter);
       return;
     }
@@ -692,7 +692,7 @@ public class MapTask extends Task {
                        TaskUmbilicalProtocol umbilical,
                        TaskReporter reporter
                        ) throws IOException, ClassNotFoundException {
-      collector = createSortingCollector(job, reporter); // 继续执行
+      collector = createSortingCollector(job, reporter); // 继续执行, 会启动spill线程
       partitions = jobContext.getNumReduceTasks();
       if (partitions > 1) {
         partitioner = (org.apache.hadoop.mapreduce.Partitioner<K,V>)
@@ -739,7 +739,7 @@ public class MapTask extends Task {
       new org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl(job, 
                                                                   getTaskID(),
                                                                   reporter);
-    // make a mapper， 这里是根据反射创建我们设置的mapper类对象，比如对应wordcount，这里的mapper是TokenizerMapper对象
+    // make a mapper， 这里是根据反射创建我们设置的mapper类对象，比如对应wordcount，这里的mapper是WordCount$TokenizerMapper对象
     org.apache.hadoop.mapreduce.Mapper<INKEY,INVALUE,OUTKEY,OUTVALUE> mapper =
       (org.apache.hadoop.mapreduce.Mapper<INKEY,INVALUE,OUTKEY,OUTVALUE>)
         ReflectionUtils.newInstance(taskContext.getMapperClass(), job);
@@ -750,9 +750,9 @@ public class MapTask extends Task {
     // rebuild the input split
     org.apache.hadoop.mapreduce.InputSplit split = null;
     split = getSplitDetails(new Path(splitIndex.getSplitLocation()), // 得到当前map对应的split，split是在JobSubmitter.submitJobInternal中调用writeSplits得到的，有多少个split就对应多少个map。
-        splitIndex.getStartOffset()); // splitLocation比如：hdfs://localhost:9000/tmp/hadoop-yarn/staging/momo/.staging/job_1545016777582_0009/job.split， startOffset比如：7
+        splitIndex.getStartOffset()); // splitLocation比如：hdfs://localhost:9000/tmp/hadoop-yarn/staging/momo/.staging/job_1545016777582_0009/job.split， startOffset比如：7, 这里需要与hdfs通信来读取split信息
     LOG.info("Processing split: " + split);
-    // 得到RecordReader对象，用于读取split中的文本，使其变为key value的格式
+    // 得到RecordReader对象，用于读取split中的文本，使其变为key value的格式，这里是MapTask$NewTrackingRecordReader
     org.apache.hadoop.mapreduce.RecordReader<INKEY,INVALUE> input =
       new NewTrackingRecordReader<INKEY,INVALUE>
         (split, inputFormat, reporter, taskContext);

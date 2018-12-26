@@ -349,7 +349,7 @@ public class MRApps extends Apps {
   public static ClassLoader createJobClassLoader(Configuration conf)
       throws IOException {
     ClassLoader jobClassLoader = null;
-    if (conf.getBoolean(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER, false)) {
+    if (conf.getBoolean(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER, false)) { // 默认是false， 返回null
       String appClasspath = System.getenv(Environment.APP_CLASSPATH.key());
       if (appClasspath == null) {
         LOG.warn("Not creating job classloader since APP_CLASSPATH is not set.");

@@ -76,7 +76,7 @@ class YarnChild {
     // Initing with our JobConf allows us to avoid loading confs twice
     Limits.init(job);
     UserGroupInformation.setConfiguration(job);
-
+    // args一共包含4个参数，host，port， attremptID(比如：attempt_1545812988534_0001_m_000000_0)，jvmIdLong
     String host = args[0];
     int port = Integer.parseInt(args[1]);
     final InetSocketAddress address =
@@ -100,11 +100,11 @@ class YarnChild {
 
     // Create TaskUmbilicalProtocol as actual task owner.
     UserGroupInformation taskOwner =
-      UserGroupInformation.createRemoteUser(firstTaskid.getJobID().toString());
+      UserGroupInformation.createRemoteUser(firstTaskid.getJobID().toString()); // 从taskid中取出jobid: 1545812988534_0001(与job拼接成jobid：job_1545812988534_0001), jobid作为taskOwner的user
     Token<JobTokenIdentifier> jt = TokenCache.getJobToken(credentials);
     SecurityUtil.setTokenService(jt, address);
     taskOwner.addToken(jt);
-    final TaskUmbilicalProtocol umbilical =
+    final TaskUmbilicalProtocol umbilical = // umbilical是TaskUmbilicalProtocol的代理对象
       taskOwner.doAs(new PrivilegedExceptionAction<TaskUmbilicalProtocol>() {
       @Override
       public TaskUmbilicalProtocol run() throws Exception {
@@ -134,9 +134,9 @@ class YarnChild {
       if (myTask.shouldDie()) {
         return;
       }
-
+      // task是具体的MapTask或ReduceTask
       task = myTask.getTask();
-      YarnChild.taskid = task.getTaskID();
+      YarnChild.taskid = task.getTaskID(); // 这里的taskid应该与上面的firstTaskid一直
 
       // Create the job-conf and set credentials
       configureTask(job, task, credentials, jt);
@@ -224,7 +224,7 @@ class YarnChild {
    */
   private static void configureLocalDirs(Task task, JobConf job) throws IOException {
     String[] localSysDirs = StringUtils.getTrimmedStrings(
-        System.getenv(Environment.LOCAL_DIRS.name()));
+        System.getenv(Environment.LOCAL_DIRS.name())); // 是配置项hadoop.tmp.dir下的目录，比如(hadoop.tmp.dir配置为:/hadoop-2.6.0/hadoop-momo) localSysDirs示例：hadoop-2.6.0/hadoop-momo/nm-local-dir/usercache/momo/appcache/application_1545812988534_0001
     job.setStrings(MRConfig.LOCAL_DIR, localSysDirs);
     LOG.info(MRConfig.LOCAL_DIR + " for child: " + job.get(MRConfig.LOCAL_DIR));
     LocalDirAllocator lDirAlloc = new LocalDirAllocator(MRConfig.LOCAL_DIR);
@@ -236,13 +236,13 @@ class YarnChild {
       // DiskErrorException means dir not found. If not found, it will
       // be created below.
     }
-    if (workDir == null) {
+    if (workDir == null) { // 初始化workDir，在localSysDirs下建work目录
       // JOB_LOCAL_DIR doesn't exist on this host -- Create it.
-      workDir = lDirAlloc.getLocalPathForWrite("work", job);
-      FileSystem lfs = FileSystem.getLocal(job).getRaw();
+      workDir = lDirAlloc.getLocalPathForWrite("work", job); // 比如：hadoop-2.6.0/hadoop-momo/nm-local-dir/usercache/momo/appcache/application_1545812988534_0001/work
+      FileSystem lfs = FileSystem.getLocal(job).getRaw(); // 通常是RawLocalFileSystem
       boolean madeDir = false;
       try {
-        madeDir = lfs.mkdirs(workDir);
+        madeDir = lfs.mkdirs(workDir); // 创建目录
       } catch (FileAlreadyExistsException e) {
         // Since all tasks will be running in their own JVM, the race condition
         // exists where multiple tasks could be trying to create this directory
@@ -256,13 +256,13 @@ class YarnChild {
               + workDir.toString());
       }
     }
-    job.set(MRJobConfig.JOB_LOCAL_DIR,workDir.toString());
+    job.set(MRJobConfig.JOB_LOCAL_DIR,workDir.toString()); // 将workDir设置给job
   }
 
   private static void configureTask(JobConf job, Task task,
       Credentials credentials, Token<JobTokenIdentifier> jt) throws IOException {
     job.setCredentials(credentials);
-    
+    // appAttemptId，比如：application_1545812988534_0001
     ApplicationAttemptId appAttemptId =
         ConverterUtils.toContainerId(
             System.getenv(Environment.CONTAINER_ID.name()))
@@ -289,7 +289,7 @@ class YarnChild {
         JobTokenSecretManager.createSecretKey(shuffleSecret));
 
     // setup the child's MRConfig.LOCAL_DIR.
-    configureLocalDirs(task, job);
+    configureLocalDirs(task, job); // 给job设置mapreduce.job.local.dir目录，并创建目录
 
     // setup the child's attempt directories
     // Do the task-type specific localization
@@ -300,7 +300,7 @@ class YarnChild {
 
     // Overwrite the localized task jobconf which is linked to in the current
     // work-dir.
-    Path localTaskFile = new Path(MRJobConfig.JOB_CONF_FILE);
+    Path localTaskFile = new Path(MRJobConfig.JOB_CONF_FILE); // localTaskFile为job.xml
     writeLocalJobFile(localTaskFile, job);
     task.setJobFile(localTaskFile.toString());
     task.setConf(job);
