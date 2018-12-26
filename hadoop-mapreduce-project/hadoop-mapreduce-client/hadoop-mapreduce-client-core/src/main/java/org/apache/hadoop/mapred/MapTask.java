@@ -309,16 +309,16 @@ public class MapTask extends Task {
     if (isMapTask()) {
       // If there are no reducers then there won't be any sort. Hence the map 
       // phase will govern the entire attempt's progress.
-      if (conf.getNumReduceTasks() == 0) {
+      if (conf.getNumReduceTasks() == 0) { // 判断是否有Reduce任务，如果没有的话，Map任务结束，就整个提交的作业结束
         mapPhase = getProgress().addPhase("map", 1.0f);
       } else {
         // If there are reducers then the entire attempt's progress will be 
-        // split between the map phase (67%) and the sort phase (33%).
+        // split between the map phase (67%) and the sort phase (33%). 如果有reduce任务的话，当Map任务完成的时候设置当前进度为66.7%，Sort完成的时候设置进度为33.3%。
         mapPhase = getProgress().addPhase("map", 0.667f);
         sortPhase  = getProgress().addPhase("sort", 0.333f);
       }
     }
-    TaskReporter reporter = startReporter(umbilical); // 创建TaskReporter线程对象
+    TaskReporter reporter = startReporter(umbilical); // 启动TaskReporter线程，用于更新当前的状态。
  
     boolean useNewApi = job.getUseNewMapper();
     initialize(job, getJobID(), reporter, useNewApi);
@@ -337,7 +337,7 @@ public class MapTask extends Task {
       return;
     }
 
-    if (useNewApi) {
+    if (useNewApi) { // 调用runNewMapper方法，执行具体的map。
       runNewMapper(job, splitMetaInfo, umbilical, reporter);
     } else {
       runOldMapper(job, splitMetaInfo, umbilical, reporter);
@@ -385,7 +385,7 @@ public class MapTask extends Task {
       new MapOutputCollector.Context(this, job, reporter);
 
     Class<?>[] collectorClasses = job.getClasses(
-      JobContext.MAP_OUTPUT_COLLECTOR_CLASS_ATTR, MapOutputBuffer.class);
+      JobContext.MAP_OUTPUT_COLLECTOR_CLASS_ATTR, MapOutputBuffer.class); // 默认是MapOutputBuffer
     int remainingCollectors = collectorClasses.length;
     for (Class clazz : collectorClasses) {
       try {
@@ -694,7 +694,7 @@ public class MapTask extends Task {
                        ) throws IOException, ClassNotFoundException {
       collector = createSortingCollector(job, reporter); // 继续执行, 会启动spill线程
       partitions = jobContext.getNumReduceTasks();
-      if (partitions > 1) {
+      if (partitions > 1) { // 通过反射构造Partitioner类对象
         partitioner = (org.apache.hadoop.mapreduce.Partitioner<K,V>)
           ReflectionUtils.newInstance(jobContext.getPartitionerClass(), job);
       } else {
@@ -734,7 +734,7 @@ public class MapTask extends Task {
                     TaskReporter reporter
                     ) throws IOException, ClassNotFoundException,
                              InterruptedException {
-    // make a task context so we can get the classes
+    // make a task context so we can get the classes 获取配置信息类对象TaskAttemptContextImpl
     org.apache.hadoop.mapreduce.TaskAttemptContext taskContext =
       new org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl(job, 
                                                                   getTaskID(),
@@ -743,16 +743,16 @@ public class MapTask extends Task {
     org.apache.hadoop.mapreduce.Mapper<INKEY,INVALUE,OUTKEY,OUTVALUE> mapper =
       (org.apache.hadoop.mapreduce.Mapper<INKEY,INVALUE,OUTKEY,OUTVALUE>)
         ReflectionUtils.newInstance(taskContext.getMapperClass(), job);
-    // make the input format
+    // make the input format 获取用户指定的InputFormat对象 (默认是TextInputFormat)
     org.apache.hadoop.mapreduce.InputFormat<INKEY,INVALUE> inputFormat =
       (org.apache.hadoop.mapreduce.InputFormat<INKEY,INVALUE>)
         ReflectionUtils.newInstance(taskContext.getInputFormatClass(), job); // taskContext实际是TaskAttemptContextImpl对象，调用的是父类JobContextImpl的对应方法，获取配置项mapreduce.job.inputformat.class的值，没有配置的话返回默认值TextInputFormat，这里返回的是默认值
-    // rebuild the input split
+    // rebuild the input split 获取当前Map task要处理的分片信息
     org.apache.hadoop.mapreduce.InputSplit split = null;
     split = getSplitDetails(new Path(splitIndex.getSplitLocation()), // 得到当前map对应的split，split是在JobSubmitter.submitJobInternal中调用writeSplits得到的，有多少个split就对应多少个map。
         splitIndex.getStartOffset()); // splitLocation比如：hdfs://localhost:9000/tmp/hadoop-yarn/staging/momo/.staging/job_1545016777582_0009/job.split， startOffset比如：7, 这里需要与hdfs通信来读取split信息
     LOG.info("Processing split: " + split);
-    // 得到RecordReader对象，用于读取split中的文本，使其变为key value的格式，这里是MapTask$NewTrackingRecordReader
+    // 根据inputFormat构建一个NewTrackingRecordReader对象，得到RecordReader对象，用于读取split中的文本，使其变为key value的格式， 对于wordcount，这里得到的是LineRecordReader，用于读取分片中的内容，传递给Mapper的map方法做处理的。
     org.apache.hadoop.mapreduce.RecordReader<INKEY,INVALUE> input =
       new NewTrackingRecordReader<INKEY,INVALUE>
         (split, inputFormat, reporter, taskContext);

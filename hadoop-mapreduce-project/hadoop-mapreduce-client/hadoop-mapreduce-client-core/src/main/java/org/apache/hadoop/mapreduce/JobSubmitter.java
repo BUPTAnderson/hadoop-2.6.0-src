@@ -75,10 +75,10 @@ class JobSubmitter {
   protected static final Log LOG = LogFactory.getLog(JobSubmitter.class);
   private static final String SHUFFLE_KEYGEN_ALGORITHM = "HmacSHA1";
   private static final int SHUFFLE_KEY_LENGTH = 64;
-  private FileSystem jtFs;
-  private ClientProtocol submitClient;
-  private String submitHostName;
-  private String submitHostAddress;
+  private FileSystem jtFs; // 文件系统FileSystem实例
+  private ClientProtocol submitClient; // 客户端通信协议ClientProtocol实例
+  private String submitHostName; // 提交作业的主机名
+  private String submitHostAddress; // 提交作业的主机地址
   
   JobSubmitter(FileSystem submitFs, ClientProtocol submitClient) 
   throws IOException {
@@ -533,7 +533,7 @@ class JobSubmitter {
       // Now, actually submit the job (using the submit name)
       //
       printTokens(jobId, job.getCredentials());
-      status = submitClient.submitJob( // 提交作业
+      status = submitClient.submitJob( // 提交作业到yarn
           jobId, submitJobDir.toString(), job.getCredentials());
       if (status != null) {
         return status;

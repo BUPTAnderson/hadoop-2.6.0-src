@@ -107,7 +107,7 @@ public class Mapper<KEYIN, VALUEIN, KEYOUT, VALUEOUT> {
   }
   
   /**
-   * Called once at the beginning of the task.
+   * Called once at the beginning of the task. setup方法是map任务开始运行的时候调用一次
    */
   protected void setup(Context context
                        ) throws IOException, InterruptedException {
@@ -116,7 +116,7 @@ public class Mapper<KEYIN, VALUEIN, KEYOUT, VALUEOUT> {
 
   /**
    * Called once for each key/value pair in the input split. Most applications
-   * should override this, but the default is the identity function.
+   * should override this, but the default is the identity function. 当处理每一个键值对的时候，都要调用一次map方法
    */
   @SuppressWarnings("unchecked")
   protected void map(KEYIN key, VALUEIN value, 
@@ -125,7 +125,7 @@ public class Mapper<KEYIN, VALUEIN, KEYOUT, VALUEOUT> {
   }
 
   /**
-   * Called once at the end of the task.
+   * Called once at the end of the task. cleanup方法是整个map任务结束的时候运行一次。
    */
   protected void cleanup(Context context
                          ) throws IOException, InterruptedException {
@@ -139,13 +139,13 @@ public class Mapper<KEYIN, VALUEIN, KEYOUT, VALUEOUT> {
    * @throws IOException
    */
   public void run(Context context) throws IOException, InterruptedException {
-    setup(context);
+    setup(context); // 执行一次setup方法
     try {
-      while (context.nextKeyValue()) {
+      while (context.nextKeyValue()) { // 通过自定义的map函数，不断的处理分片中的数据
         map(context.getCurrentKey(), context.getCurrentValue(), context);
       }
     } finally {
-      cleanup(context);
+      cleanup(context); // 执行一次cleanup方法
     }
   }
 }

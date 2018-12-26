@@ -85,7 +85,7 @@ public abstract class FileInputFormat<K, V> extends InputFormat<K, V> {
   public static enum Counter { 
     BYTES_READ
   }
-
+  // 路径过滤，对应以"_"和"."开头的文件，直接过滤掉。
   private static final PathFilter hiddenFileFilter = new PathFilter(){
       public boolean accept(Path p){
         String name = p.getName(); 
